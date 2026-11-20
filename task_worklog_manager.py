@@ -52,6 +52,7 @@ CONFIG_FILE = os.environ.get("TASK_MANAGER_CONFIG", os.path.join(DEFAULT_CONFIG_
 WORK_LOG_MD_FILE = os.environ.get("TASK_MANAGER_WORKLOG_MD", os.path.join(BASE_DIR, "Work_Log_History.md"))
 UI_HTML_FILE = os.path.join(BASE_DIR, "index.html")
 BROWSER_JS_FILE = os.path.join(BASE_DIR, "sheets_browser.js")
+APPS_SCRIPT_FILE = os.path.join(BASE_DIR, "apps_script.gs")
 
 TASKS_START_ROW = 9
 WORKLOG_START_ROW = 10
@@ -1332,6 +1333,18 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
                 body = f.read()
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif parsed.path == "/apps_script.gs":
+            if not os.path.isfile(APPS_SCRIPT_FILE):
+                self.send_error(404)
+                return
+            with open(APPS_SCRIPT_FILE, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

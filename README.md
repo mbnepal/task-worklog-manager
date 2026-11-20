@@ -3,7 +3,7 @@
 A lightweight web application for **creating, editing, filtering, and safely deleting** records in the Employee Monthly Reporting Google Sheet (`Tasks` and `Work log` tabs), with multi-sheet switching via a built-in **Setup** modal.
 
 Works in **two modes** using the same interface:
-1. **Always-Online Static Mode (GitHub Pages):** Hosted at **https://mbnepal.github.io/task-worklog-manager/** — runs 100% in your browser using Google Identity Services and the Google Sheets REST API v4.
+1. **Always-Online Static Mode (GitHub Pages):** Hosted at **https://mbnepal.github.io/task-worklog-manager/** — connects directly to your Google Sheet via a lightweight `apps_script.gs` Web App (just like Sujan Store Inventory Manager — **no Google Cloud Console or OAuth Web Client ID required**).
 2. **Local Python Server Mode:** Run `python task_worklog_manager.py` locally with automatic `Work_Log_History.md` disk syncing.
 
 ## Features
@@ -16,31 +16,28 @@ Works in **two modes** using the same interface:
   - Create, edit, 1-click status toggle (`On-going` / `Complete`), duplicate, and safely delete daily work log entries across `B:G`.
   - Quick duration chips (`15m`–`240m`), project autocomplete from existing records, date range presets, and `Work_Log_History.md` export/sync.
 - **Multi-Sheet Setup (`⚙ Setup`)**
-  - Paste any Google Sheets URL or Spreadsheet ID with matching `Tasks`, `Work log`, and `Data` tabs.
-  - Customize tab names if needed, test the connection before saving, switch Google accounts, and quick-switch between saved sheets.
+  - Connects to your Google Sheet via Apps Script Web App URL (with optional PIN and optional Google Sheet link override to access shared sheets).
+  - Supports custom tab names (`Tasks`, `Work log`, `Data`), connection testing, and quick-switching between saved sheets.
 - **Conflict Protection**
   - Detects external edits before `PUT` / `DELETE` and refreshes the UI instead of overwriting changed rows.
 
 ---
 
-## Option A: Use Online on GitHub Pages (Always Online)
+## Option A: Use Online on GitHub Pages (No OAuth Client ID Needed)
 
 Open: **https://mbnepal.github.io/task-worklog-manager/**
 
-### One-Time OAuth Setup (Web Application Client ID)
-Because GitHub Pages is static HTML/JS, Google sign-in in the browser requires a **Web application** OAuth Client ID (public Client ID only — no client secret is used):
+### One-Time Setup via Google Apps Script (30 seconds)
+1. Open your **Employee Monthly Reporting** Google Sheet → **Extensions → Apps Script**.
+2. Copy the contents of [`apps_script.gs`](./apps_script.gs) (or click **📋 Copy apps_script.gs** directly inside the Setup modal) and paste it into `Code.gs`, then Save.
+   - *(Optional)* Set `TWM_ACCESS_PIN` at the top of `apps_script.gs` if you want a PIN lock.
+3. Click **Deploy → New deployment → Select type: Web app**:
+   - **Execute as:** `Me`
+   - **Who has access:** `Anyone`
+4. Authorize once when prompted and copy the **Web App URL** (ends with `/exec`).
+5. Paste the Web App URL into **⚙ Setup** on **https://mbnepal.github.io/task-worklog-manager/** and click **Test Connection** → **Save & Load Sheet**.
 
-1. Open [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services → Library** and enable **Google Sheets API**.
-2. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**.
-3. Choose Application type: **Web application**.
-4. Under **Authorized JavaScript origins**, add:
-   - `https://mbnepal.github.io`
-5. Copy the generated **Client ID** (`....apps.googleusercontent.com`).
-6. On the web app's **⚙ Setup** screen:
-   - Paste the **Google OAuth Web Client ID**.
-   - Paste your **Google Sheet link** (ensure your Google account has Editor access to it).
-   - Click **Test Connection**, sign in with Google, and click **Save & Load Sheet**.
-   - *(Optional)* Click **Copy Team Link** inside Setup to share a URL (`?client_id=...`) with teammates so they don't have to look up the Client ID.
+*(An alternative OAuth Web Client ID option is also tucked inside Setup if you ever want direct REST API calls without Apps Script.)*
 
 ---
 
