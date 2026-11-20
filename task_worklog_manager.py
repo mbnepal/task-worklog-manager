@@ -50,7 +50,8 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 TOKEN_FILE = os.environ.get("TASK_MANAGER_TOKEN", os.path.join(DEFAULT_CONFIG_DIR, "token.json"))
 CONFIG_FILE = os.environ.get("TASK_MANAGER_CONFIG", os.path.join(DEFAULT_CONFIG_DIR, "task_worklog_config.json"))
 WORK_LOG_MD_FILE = os.environ.get("TASK_MANAGER_WORKLOG_MD", os.path.join(BASE_DIR, "Work_Log_History.md"))
-UI_HTML_FILE = os.path.join(BASE_DIR, "task_worklog_ui.html")
+UI_HTML_FILE = os.path.join(BASE_DIR, "index.html")
+BROWSER_JS_FILE = os.path.join(BASE_DIR, "sheets_browser.js")
 
 TASKS_START_ROW = 9
 WORKLOG_START_ROW = 10
@@ -412,6 +413,7 @@ def build_worklog_record(row_num: int, r: list) -> dict:
 
 def build_setup_status(cfg: dict, sheet_url: str = "") -> dict:
     return {
+        "mode": "local",
         "spreadsheet_id": cfg.get("spreadsheet_id", ""),
         "url": sheet_url,
         "tasks_tab": cfg.get("tasks_tab", DEFAULT_TASKS_TAB),
@@ -1310,7 +1312,7 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/":
+        if parsed.path in ("/", "/index.html"):
             if not os.path.isfile(UI_HTML_FILE):
                 self.send_error(500, "UI file missing")
                 return
@@ -1318,6 +1320,18 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
                 body = f.read()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif parsed.path == "/sheets_browser.js":
+            if not os.path.isfile(BROWSER_JS_FILE):
+                self.send_error(404)
+                return
+            with open(BROWSER_JS_FILE, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tasks &amp; Work Log Manager</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="sheets_browser.js"></script>
   <style>
     :root {
       --bg: #f1f5f9;
@@ -765,6 +767,7 @@
           <option value="row_asc">Oldest First</option>
           <option value="time_desc">Longest Time</option>
         </select>
+        <button type="button" class="btn btn-sm" onclick="exportWorklogsMd()" title="Download Work_Log_History.md">⬇ Export MD</button>
       </div>
 
       <div class="table-card">
@@ -971,7 +974,7 @@
             <textarea class="input" id="wf_comments" rows="2" placeholder="Files changed, deployment notes, ticket/issue links..."></textarea>
           </div>
 
-          <label class="checkbox-row">
+          <label class="checkbox-row" id="wf_sync_md_wrap">
             <input type="checkbox" id="wf_sync_md" />
             Also update local <code>Work_Log_History.md</code>
           </label>
@@ -1022,6 +1025,23 @@
             Ensure the sheet is shared with Editor access to the signed-in Google account.
           </div>
 
+          <div class="field hidden" id="sf_client_id_wrap">
+            <label>
+              <span>Google OAuth Web Client ID <span class="req">*</span></span>
+              <span class="cell-sub" style="font-weight:400;">Required for browser sign-in on GitHub Pages</span>
+            </label>
+            <input class="input" type="text" id="sf_client_id" placeholder="1234567890-xxxx.apps.googleusercontent.com" />
+            <details style="margin-top:4px; font-size:12px; color:var(--muted);">
+              <summary style="cursor:pointer; font-weight:600; color:var(--primary);">How to create a Web Client ID (one-time per team)</summary>
+              <ol style="margin:6px 0 0 18px; padding:0; line-height:1.55;">
+                <li>Open Google Cloud Console → <strong>APIs &amp; Services → Credentials</strong> (enable <strong>Google Sheets API</strong>).</li>
+                <li>Click <strong>Create Credentials → OAuth client ID</strong> → Application type: <strong>Web application</strong>.</li>
+                <li>Under <strong>Authorized JavaScript origins</strong>, add: <code id="sf_origin_hint">https://mbnepal.github.io</code></li>
+                <li>Copy the <strong>Client ID</strong> (no client secret needed) and paste it above.</li>
+              </ol>
+            </details>
+          </div>
+
           <div class="field">
             <label>Google Sheet Link or Spreadsheet ID <span class="req">*</span></label>
             <input class="input" type="text" id="sf_sheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." required />
@@ -1047,14 +1067,15 @@
 
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             <button type="button" class="btn" id="testSetupBtn" onclick="testSetupConnection()">Test Connection</button>
-            <button type="button" class="btn" id="reauthBtn" onclick="switchGoogleAccount()" title="Open Google OAuth to sign in with a different Google account">Switch Google Account</button>
+            <button type="button" class="btn" id="reauthBtn" onclick="switchGoogleAccount()" title="Open Google OAuth to sign in or switch Google account">Sign In / Switch Google Account</button>
+            <button type="button" class="btn hidden" id="copyShareLinkBtn" onclick="copyShareLink()" title="Copy shareable link with Client ID pre-filled">Copy Team Link</button>
           </div>
 
           <div class="form-section-title" style="margin-top:6px;">Saved Sheets (Quick Switch)</div>
           <div id="savedSheetsList" style="display:flex; flex-direction:column; gap:8px;"></div>
         </div>
         <div class="modal-footer">
-          <span class="cell-sub">Stored locally in <code>config/task_worklog_config.json</code></span>
+          <span class="cell-sub" id="setupStorageHint">Stored locally in <code>config/task_worklog_config.json</code></span>
           <div style="display:flex; gap:8px;">
             <button type="button" class="btn" onclick="closeModal('setupModalBackdrop')">Cancel</button>
             <button type="submit" class="btn btn-primary" id="saveSetupBtn">Save &amp; Load Sheet</button>
@@ -1068,9 +1089,10 @@
 
   <script>
     let state = {
+      appMode: "browser",
       activeTab: "tasks",
       spreadsheet: {},
-      setup: { sync_md_default: true, saved_sheets: [] },
+      setup: { sync_md_default: false, saved_sheets: [] },
       employee: {},
       dropdowns: { staff: [], departments: [], priorities: [], difficulties: [], projects: [] },
       tasks: [],
@@ -1125,7 +1147,33 @@
       }, 3800);
     }
 
+    async function detectBackendMode() {
+      const host = window.location.hostname;
+      if (host === "127.0.0.1" || host === "localhost") {
+        try {
+          const res = await fetch("/api/setup", { cache: "no-store" });
+          const ct = res.headers.get("content-type") || "";
+          if (res.ok && ct.includes("application/json")) {
+            state.appMode = "local";
+            return;
+          }
+        } catch (_) {}
+      }
+      state.appMode = "browser";
+    }
+
     async function apiFetch(url, options = {}) {
+      if (state.appMode === "browser") {
+        try {
+          return await window.SheetsBrowserAdapter.handleRequest(url, options);
+        } catch (err) {
+          if (err && err.status === 409) {
+            showToast(err.message || "Sheet changed externally — refreshing.", "error");
+            await loadBootstrap(false);
+          }
+          throw err;
+        }
+      }
       const res = await fetch(url, {
         headers: { "Content-Type": "application/json" },
         ...options,
@@ -1139,6 +1187,15 @@
         throw new Error(data.error || `Request failed (${res.status})`);
       }
       return data;
+    }
+
+    function exportWorklogsMd() {
+      if (!state.worklogs.length) {
+        showToast("No work log entries to export.", "error");
+        return;
+      }
+      window.SheetsBrowserAdapter.exportWorklogMarkdown(state.worklogs);
+      showToast("Downloaded Work_Log_History.md", "success");
     }
 
     async function loadBootstrap(showMsg = false) {
@@ -1888,12 +1945,25 @@
     }
 
     // --- SETUP LOGIC ---
+    function syncModeUi() {
+      const isBrowser = state.appMode === "browser";
+      document.getElementById("sf_client_id_wrap").classList.toggle("hidden", !isBrowser);
+      document.getElementById("copyShareLinkBtn").classList.toggle("hidden", !isBrowser);
+      document.getElementById("wf_sync_md_wrap").classList.toggle("hidden", isBrowser);
+      document.getElementById("sf_origin_hint").textContent = window.location.origin;
+      document.getElementById("setupStorageHint").innerHTML = isBrowser
+        ? "Saved in your browser (<code>localStorage</code>) — zero secrets stored on server"
+        : "Stored locally in <code>config/task_worklog_config.json</code>";
+    }
+
     async function openSetupModal() {
+      syncModeUi();
       const statusBox = document.getElementById("setupTestStatus");
       statusBox.classList.add("hidden");
       try {
         const cfg = await apiFetch("/api/setup");
         state.setup.saved_sheets = cfg.saved_sheets || [];
+        document.getElementById("sf_client_id").value = cfg.client_id || "";
         document.getElementById("sf_sheet_url").value =
           cfg.url || (cfg.spreadsheet_id ? `https://docs.google.com/spreadsheets/d/${cfg.spreadsheet_id}/edit` : "");
         document.getElementById("sf_tasks_tab").value = cfg.tasks_tab || "Tasks";
@@ -1901,7 +1971,19 @@
         document.getElementById("sf_data_tab").value = cfg.data_tab || "Data";
 
         const credsBanner = document.getElementById("setupCredsBanner");
-        if (!cfg.has_credentials) {
+        if (state.appMode === "browser") {
+          if (!cfg.client_id) {
+            credsBanner.className = "check-banner warn";
+            credsBanner.textContent =
+              `Paste your Google OAuth Web Client ID above (Authorized JavaScript origin: ${window.location.origin}).`;
+          } else {
+            credsBanner.className = "check-banner ok";
+            credsBanner.textContent = cfg.has_token
+              ? "Web Client ID set ✓ • Google session active ✓"
+              : "Web Client ID set ✓ • Click Test Connection or Save & Load Sheet to sign in with Google";
+          }
+          credsBanner.classList.remove("hidden");
+        } else if (!cfg.has_credentials) {
           credsBanner.className = "check-banner warn";
           credsBanner.textContent =
             "Missing config/client_secret.json — add your Google Cloud OAuth Desktop JSON file (see README.md) before connecting.";
@@ -1919,7 +2001,25 @@
         showToast(err.message, "error");
       }
       openModal("setupModalBackdrop");
-      setTimeout(() => document.getElementById("sf_sheet_url").focus(), 40);
+      const focusId = state.appMode === "browser" && !document.getElementById("sf_client_id").value
+        ? "sf_client_id"
+        : "sf_sheet_url";
+      setTimeout(() => document.getElementById(focusId).focus(), 40);
+    }
+
+    function copyShareLink() {
+      const cid = document.getElementById("sf_client_id").value.trim();
+      if (!cid) {
+        showToast("Enter your Google OAuth Web Client ID first.", "error");
+        return;
+      }
+      const u = new URL(window.location.href);
+      u.search = "";
+      u.searchParams.set("client_id", cid);
+      navigator.clipboard.writeText(u.toString()).then(
+        () => showToast("Copied team link with Client ID!", "success"),
+        () => showToast(u.toString(), "info")
+      );
     }
 
     function renderSavedSheets(activeId) {
@@ -1954,6 +2054,7 @@
 
     function _getSetupFormPayload() {
       return {
+        client_id: document.getElementById("sf_client_id").value,
         sheet_url: document.getElementById("sf_sheet_url").value,
         tasks_tab: document.getElementById("sf_tasks_tab").value,
         worklog_tab: document.getElementById("sf_worklog_tab").value,
@@ -2044,7 +2145,7 @@
       try {
         const data = await apiFetch("/api/setup/reauth", {
           method: "POST",
-          body: JSON.stringify({}),
+          body: JSON.stringify({ client_id: document.getElementById("sf_client_id").value }),
         });
         document.getElementById("loadErrorBanner").classList.add("hidden");
         applyBootstrap(data);
@@ -2054,7 +2155,7 @@
         showToast(err.message, "error");
       } finally {
         btn.disabled = false;
-        btn.textContent = "Switch Google Account";
+        btn.textContent = "Sign In / Switch Google Account";
       }
     }
 
@@ -2145,7 +2246,10 @@
       }
     });
 
-    loadBootstrap(false);
+    detectBackendMode().then(() => {
+      syncModeUi();
+      loadBootstrap(false);
+    });
   </script>
 </body>
 </html>
