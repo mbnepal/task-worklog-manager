@@ -1,0 +1,21 @@
+# Credentials & OAuth tokens (NEVER commit)
+config/
+*.json
+!*.example.json
+
+# Local work log export
+Work_Log_History.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,2151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tasks &amp; Work Log Manager</title>
+  <style>
+    :root {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --surface-alt: #f8fafc;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --green: #15803d;
+      --green-bg: #dcfce7;
+      --amber: #b45309;
+      --amber-bg: #fef3c7;
+      --red: #b91c1c;
+      --red-bg: #fee2e2;
+      --purple: #6d28d9;
+      --purple-bg: #f3e8ff;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 20px 40px -12px rgba(15, 23, 42, 0.22);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+    }
+
+    .topbar-inner {
+      max-width: 1640px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 16px;
+      box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .brand-sub {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+
+    .sheet-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .sheet-link:hover { text-decoration: underline; }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .health-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .health-pill.ok { background: var(--green-bg); color: var(--green); border-color: #bbf7d0; }
+    .health-pill.warn { background: var(--amber-bg); color: var(--amber); border-color: #fde68a; }
+    .health-pill.err { background: var(--red-bg); color: var(--red); border-color: #fecaca; }
+
+    .tabs-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+
+    .tabs-inner {
+      max-width: 1640px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .tab-list {
+      display: flex;
+      gap: 4px;
+    }
+
+    .tab-btn {
+      border: none;
+      background: transparent;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .tab-count {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: var(--text);
+    }
+    .tab-btn.active .tab-count {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.14s;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn-success {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .btn-success:hover:not(:disabled) { opacity: 0.92; }
+    .btn-danger {
+      background: #dc2626;
+      border-color: #dc2626;
+      color: #fff;
+    }
+    .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+    .btn-xs { padding: 4px 8px; font-size: 11px; border-radius: 6px; }
+
+    .container {
+      max-width: 1640px;
+      margin: 0 auto;
+      padding: 18px 24px 56px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 13px 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .kpi-value {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .kpi-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .toolbar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      box-shadow: var(--shadow);
+    }
+
+    .input, select, textarea {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 7px 11px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.14s, box-shadow 0.14s;
+    }
+    .input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 220px;
+      max-width: 380px;
+    }
+
+    .pill-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill-filter {
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+      color: var(--text);
+      padding: 6px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .pill-filter:hover { background: #e2e8f0; }
+    .pill-filter.active {
+      background: var(--text);
+      color: #fff;
+      border-color: var(--text);
+    }
+
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    thead th {
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      padding: 10px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f8fafc; }
+
+    tbody td {
+      padding: 10px;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    tbody td .badge {
+      white-space: normal;
+      line-height: 1.25;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge-green { background: var(--green-bg); color: var(--green); }
+    .badge-amber { background: var(--amber-bg); color: var(--amber); }
+    .badge-red { background: var(--red-bg); color: var(--red); }
+    .badge-blue { background: var(--primary-soft); color: var(--primary); }
+    .badge-purple { background: var(--purple-bg); color: var(--purple); }
+    .badge-slate { background: #e2e8f0; color: #334155; }
+
+    .cell-title {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+
+    .cell-sub {
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    .meta-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 6px;
+    }
+
+    .progress-wrap {
+      width: 100%;
+      min-width: 90px;
+      height: 7px;
+      background: #e2e8f0;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 999px;
+    }
+    .progress-bar.done { background: var(--green); }
+
+    .actions-col {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      justify-content: flex-end;
+    }
+
+    .empty-state {
+      padding: 48px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .table-footer {
+      padding: 10px 14px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.52);
+      backdrop-filter: blur(2px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 100;
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 820px;
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+    }
+    .modal.modal-sm { max-width: 520px; }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .modal-close {
+      border: none;
+      background: #f1f5f9;
+      color: var(--text);
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      font-size: 18px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    .modal-close:hover { background: #e2e8f0; }
+
+    .modal-body {
+      padding: 18px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .form-section-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
+      margin-top: 4px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .form-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+
+    @media (max-width: 680px) {
+      .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
+      .span-2, .span-3 { grid-column: span 1; }
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .field label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .req { color: #dc2626; }
+    .field textarea {
+      resize: vertical;
+      min-height: 70px;
+    }
+
+    .quick-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 4px;
+    }
+    .chip-btn {
+      border: 1px solid var(--border-strong);
+      background: var(--surface-alt);
+      color: var(--text);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .chip-btn:hover { background: #e2e8f0; }
+
+    .check-banner {
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px solid;
+    }
+    .check-banner.ok {
+      background: var(--green-bg);
+      color: var(--green);
+      border-color: #bbf7d0;
+    }
+    .check-banner.warn {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border-color: #fde68a;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #334155;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toast-wrap {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      background: #0f172a;
+      color: #fff;
+      padding: 11px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.25);
+      max-width: 420px;
+    }
+    .toast.success { background: #15803d; }
+    .toast.error { background: #b91c1c; }
+
+    .hidden { display: none !important; }
+    .highlight-req { border-color: #d97706 !important; background: #fffbeb !important; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-icon">TW</div>
+        <div>
+          <h1>Tasks &amp; Work Log Manager</h1>
+          <div class="brand-sub">
+            <span id="employeeBadge">Loading...</span>
+            <span id="sheetLinkSep" class="hidden">•</span>
+            <a id="sheetLink" class="sheet-link hidden" href="#" target="_blank" rel="noopener">Open Google Sheet ↗</a>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div id="healthPill" class="health-pill ok" title="Click to filter tasks needing attention" onclick="jumpToAttention()">
+          Checking sheet...
+        </div>
+        <button class="btn" id="setupBtn" onclick="openSetupModal()" title="Switch or configure Google Sheet link">⚙ Setup</button>
+        <button class="btn" id="refreshBtn" onclick="loadBootstrap(true)">↻ Refresh</button>
+        <button class="btn btn-primary" id="primaryNewBtn" onclick="openPrimaryNew()">+ New Record</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs-bar">
+    <div class="tabs-inner">
+      <div class="tab-list">
+        <button class="tab-btn active" id="tabBtnTasks" onclick="switchTab('tasks')">
+          Tasks <span class="tab-count" id="tasksCountBadge">0</span>
+        </button>
+        <button class="tab-btn" id="tabBtnWorklog" onclick="switchTab('worklogs')">
+          Work Log <span class="tab-count" id="worklogCountBadge">0</span>
+        </button>
+      </div>
+      <div class="brand-sub" style="padding: 8px 0;">
+        <span id="activeSheetTitleBadge" class="badge badge-slate">Default Sheet</span>
+        <span>Shortcuts: <kbd>/</kbd> Search • <kbd>Esc</kbd> Close Modal • <kbd>Ctrl+Enter</kbd> Save</span>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container">
+    <div id="loadErrorBanner" class="check-banner warn hidden" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <span id="loadErrorText"></span>
+      <button class="btn btn-sm btn-primary" onclick="openSetupModal()">Open Setup</button>
+    </div>
+    <!-- TASKS VIEW -->
+    <section id="tasksView">
+      <div class="kpi-grid" id="tasksKpis"></div>
+
+      <div class="toolbar">
+        <input class="input search-box" id="taskSearch" type="text" placeholder="Search tasks, outcome, person, dept, remarks..." />
+        <select id="taskMonthFilter"></select>
+        <select id="taskPriorityFilter">
+          <option value="">All Priorities</option>
+        </select>
+        <div class="pill-group" id="taskStatusPills">
+          <button class="pill-filter active" data-val="all">All</button>
+          <button class="pill-filter" data-val="pending">Pending</button>
+          <button class="pill-filter" data-val="completed">Completed</button>
+          <button class="pill-filter" data-val="behind">Behind Schedule</button>
+          <button class="pill-filter" data-val="attention">Needs Attention</button>
+        </div>
+        <select id="taskSort">
+          <option value="row_desc">Newest (Row ↓)</option>
+          <option value="row_asc">Oldest (Row ↑)</option>
+          <option value="deadline_asc">Deadline (Soonest)</option>
+          <option value="entry_desc">Entry Date ↓</option>
+        </select>
+      </div>
+
+      <div class="table-card">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 58px;">ID</th>
+                <th style="width: 135px;">Dates</th>
+                <th>Task Detail &amp; Outcome</th>
+                <th style="width: 100px;">Priority</th>
+                <th style="width: 115px;">Hours &amp; %</th>
+                <th style="width: 122px;">Status</th>
+                <th style="width: 136px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tasksTbody"></tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span id="tasksFooterInfo">Loading...</span>
+          <span>Read-only formulas preserved automatically: A (ID), N (Status), P (Delay Days), V/W (Checks)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- WORK LOG VIEW -->
+    <section id="worklogsView" class="hidden">
+      <div class="kpi-grid" id="worklogKpis"></div>
+
+      <div class="toolbar">
+        <input class="input search-box" id="wlSearch" type="text" placeholder="Search task description, project, comments..." />
+        <select id="wlDatePreset">
+          <option value="all">All Dates</option>
+          <option value="today">Today</option>
+          <option value="week">Last 7 Days</option>
+          <option value="month">This Month</option>
+          <option value="custom">Custom Range</option>
+        </select>
+        <input class="input hidden" id="wlDateFrom" type="date" title="From Date" />
+        <input class="input hidden" id="wlDateTo" type="date" title="To Date" />
+        <select id="wlProjectFilter">
+          <option value="">All Projects</option>
+        </select>
+        <div class="pill-group" id="wlStatusPills">
+          <button class="pill-filter active" data-val="all">All</button>
+          <button class="pill-filter" data-val="On-going">On-going</button>
+          <button class="pill-filter" data-val="Complete">Complete</button>
+        </div>
+        <select id="wlSort">
+          <option value="row_desc">Newest First</option>
+          <option value="row_asc">Oldest First</option>
+          <option value="time_desc">Longest Time</option>
+        </select>
+      </div>
+
+      <div class="table-card">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 58px;">S.N.</th>
+                <th style="width: 86px;">Date</th>
+                <th style="width: 155px;">Client / Project</th>
+                <th>Task &amp; Comments</th>
+                <th style="width: 96px;">Time</th>
+                <th style="width: 92px;">Status</th>
+                <th style="width: 138px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="worklogsTbody"></tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span id="worklogFooterInfo">Loading...</span>
+          <span>Syncs Google Sheet ('Work log') &amp; optional local Work_Log_History.md</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- TASK MODAL -->
+  <div class="modal-backdrop" id="taskModalBackdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="taskModalTitle">New Task</h2>
+        <button class="modal-close" onclick="closeModal('taskModalBackdrop')">&times;</button>
+      </div>
+      <form id="taskForm" onsubmit="submitTaskForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
+        <div class="modal-body">
+          <div id="taskLiveCheckBanner" class="check-banner ok"></div>
+
+          <div class="form-section-title">1. Task Basics</div>
+          <div class="form-grid-3">
+            <div class="field">
+              <label>Date of Entry <span class="req">*</span></label>
+              <input class="input" type="date" id="tf_date_of_entry" required />
+            </div>
+            <div class="field">
+              <label>Priority Scale <span class="req">*</span></label>
+              <select id="tf_priority" required></select>
+            </div>
+            <div class="field">
+              <label>Difficulty Level <span class="req">*</span></label>
+              <select id="tf_difficulty" required></select>
+            </div>
+            <div class="field span-3">
+              <label>Detail of Task with Purpose <span class="req">*</span></label>
+              <textarea class="input" id="tf_detail" rows="3" placeholder="Describe the task and why it is necessary..." required></textarea>
+            </div>
+            <div class="field span-3">
+              <label>Expected Outcome <span class="req">*</span></label>
+              <input class="input" type="text" id="tf_expected_outcome" placeholder="Clear summary of the deliverable or outcome" required />
+            </div>
+          </div>
+
+          <div class="form-section-title">2. Collaboration</div>
+          <div class="form-grid">
+            <div class="field">
+              <label>Other Person(s) Handling Task</label>
+              <select id="tf_other_person"></select>
+            </div>
+            <div class="field">
+              <label>Other Department(s) Involved</label>
+              <select id="tf_other_department"></select>
+            </div>
+          </div>
+
+          <div class="form-section-title">
+            3. Schedule &amp; Effort (Hours)
+            <button type="button" class="chip-btn" style="float:right; margin-top:-3px;" onclick="quickFillTaskComplete()">✓ Quick-Fill Complete Today</button>
+          </div>
+          <div class="form-grid-3">
+            <div class="field">
+              <label>Estimated Start Date <span class="req">*</span></label>
+              <input class="input" type="date" id="tf_est_start_date" required />
+            </div>
+            <div class="field">
+              <label>Expected Deadline <span class="req">*</span></label>
+              <input class="input" type="date" id="tf_expected_deadline" required />
+            </div>
+            <div class="field">
+              <label>Estimated Time (hrs) <span class="req">*</span></label>
+              <input class="input" type="number" step="0.25" min="0" id="tf_est_time" placeholder="e.g. 6" required />
+            </div>
+            <div class="field">
+              <label>Actual Start Date</label>
+              <input class="input" type="date" id="tf_act_start_date" />
+            </div>
+            <div class="field">
+              <label>Completion Date</label>
+              <input class="input" type="date" id="tf_completion_date" />
+            </div>
+            <div class="field">
+              <label>Actual Time (hrs)</label>
+              <input class="input" type="number" step="0.25" min="0" id="tf_act_time" placeholder="Required if completed" />
+            </div>
+            <div class="field span-3">
+              <label>
+                <span>% of Completed Tasks</span>
+                <span id="tf_pct_label" class="mono">0%</span>
+              </label>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <input type="range" min="0" max="100" step="5" id="tf_pct_range" style="flex:1;" />
+                <input class="input" type="number" min="0" max="100" step="1" id="tf_pct_completed" style="width:90px;" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section-title">4. Delay Explanation &amp; Comments</div>
+          <div class="form-grid">
+            <div class="field span-2">
+              <label>
+                <span>If Behind Schedule, Give Details Why</span>
+                <span id="tf_delay_req_badge" class="badge badge-amber hidden">Required (Overdue)</span>
+              </label>
+              <textarea class="input" id="tf_delay_reason" rows="2" placeholder="Explain reason if completion date or today is past Expected Deadline..."></textarea>
+            </div>
+            <div class="field">
+              <label>Employee Remarks</label>
+              <input class="input" type="text" id="tf_remarks" />
+            </div>
+            <div class="field">
+              <label>Supervisor Comments (Col T)</label>
+              <input class="input" type="text" id="tf_supervisor_comments" />
+            </div>
+            <div class="field span-2">
+              <label>Clarification on Comments (Col U)</label>
+              <input class="input" type="text" id="tf_clarification" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <label class="checkbox-row">
+            <input type="checkbox" id="tf_allow_partial" />
+            Allow saving partial draft (bypass strict Tasks V9 check)
+          </label>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn" onclick="closeModal('taskModalBackdrop')">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="taskSubmitBtn">Save Task</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- WORK LOG MODAL -->
+  <div class="modal-backdrop" id="wlModalBackdrop">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 id="wlModalTitle">New Work Log Entry</h2>
+        <button class="modal-close" onclick="closeModal('wlModalBackdrop')">&times;</button>
+      </div>
+      <form id="wlForm" onsubmit="submitWorklogForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="field">
+              <label>Date <span class="req">*</span></label>
+              <input class="input" type="date" id="wf_date" required />
+            </div>
+            <div class="field">
+              <label>Status <span class="req">*</span></label>
+              <select id="wf_status" required>
+                <option value="Complete">Complete</option>
+                <option value="On-going">On-going</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Client / Project <span class="req">*</span></label>
+            <input class="input" type="text" id="wf_project" list="wlProjectDatalist" placeholder="e.g. LOLC/MBCustom_MBMMR" required />
+            <datalist id="wlProjectDatalist"></datalist>
+          </div>
+
+          <div class="field">
+            <label>Task Description <span class="req">*</span></label>
+            <textarea class="input" id="wf_task" rows="4" placeholder="Describe what was worked on clearly..." required></textarea>
+          </div>
+
+          <div class="field">
+            <label>Time Spent (minutes) <span class="req">*</span></label>
+            <input class="input" type="number" min="0" step="5" id="wf_time_minutes" placeholder="e.g. 60" required />
+            <div class="quick-chips">
+              <button type="button" class="chip-btn" onclick="setWlMinutes(15)">15m</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(30)">30m</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(45)">45m</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(60)">1h (60m)</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(90)">1.5h (90m)</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(120)">2h (120m)</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(180)">3h (180m)</button>
+              <button type="button" class="chip-btn" onclick="setWlMinutes(240)">4h (240m)</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Comments (Optional)</label>
+            <textarea class="input" id="wf_comments" rows="2" placeholder="Files changed, deployment notes, ticket/issue links..."></textarea>
+          </div>
+
+          <label class="checkbox-row">
+            <input type="checkbox" id="wf_sync_md" />
+            Also update local <code>Work_Log_History.md</code>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <span class="cell-sub" id="wlModalHint">Appends to 'Work log' sheet</span>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn" onclick="closeModal('wlModalBackdrop')">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="wlSubmitBtn">Save Work Log</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- DELETE CONFIRM MODAL -->
+  <div class="modal-backdrop" id="deleteModalBackdrop">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 id="deleteModalTitle">Confirm Delete</h2>
+        <button class="modal-close" onclick="closeModal('deleteModalBackdrop')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0;">Are you sure you want to delete this record from the live Google Sheet? Subsequent rows will shift up safely without breaking sheet formulas.</p>
+        <div id="deleteSummaryBox" style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:12px; font-size:13px;"></div>
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn" onclick="closeModal('deleteModalBackdrop')">Cancel</button>
+          <button type="button" class="btn btn-danger" id="confirmDeleteBtn" onclick="executeDelete()">Delete Record</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETUP MODAL -->
+  <div class="modal-backdrop" id="setupModalBackdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Google Sheet Setup</h2>
+        <button class="modal-close" onclick="closeModal('setupModalBackdrop')">&times;</button>
+      </div>
+      <form id="setupForm" onsubmit="submitSetupForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
+        <div class="modal-body">
+          <div class="cell-sub" style="margin-top:-4px;">
+            Connect any Google Sheet that uses the same <strong>Tasks</strong>, <strong>Work log</strong>, and <strong>Data</strong> tabs.
+            Ensure the sheet is shared with Editor access to the signed-in Google account.
+          </div>
+
+          <div class="field">
+            <label>Google Sheet Link or Spreadsheet ID <span class="req">*</span></label>
+            <input class="input" type="text" id="sf_sheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." required />
+          </div>
+
+          <div class="form-grid-3">
+            <div class="field">
+              <label>Tasks Tab Name <span class="req">*</span></label>
+              <input class="input" type="text" id="sf_tasks_tab" value="Tasks" required />
+            </div>
+            <div class="field">
+              <label>Work Log Tab Name <span class="req">*</span></label>
+              <input class="input" type="text" id="sf_worklog_tab" value="Work log" required />
+            </div>
+            <div class="field">
+              <label>Data Tab Name (Dropdowns)</label>
+              <input class="input" type="text" id="sf_data_tab" value="Data" />
+            </div>
+          </div>
+
+          <div id="setupCredsBanner" class="check-banner ok hidden"></div>
+          <div id="setupTestStatus" class="check-banner ok hidden"></div>
+
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button type="button" class="btn" id="testSetupBtn" onclick="testSetupConnection()">Test Connection</button>
+            <button type="button" class="btn" id="reauthBtn" onclick="switchGoogleAccount()" title="Open Google OAuth to sign in with a different Google account">Switch Google Account</button>
+          </div>
+
+          <div class="form-section-title" style="margin-top:6px;">Saved Sheets (Quick Switch)</div>
+          <div id="savedSheetsList" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+        <div class="modal-footer">
+          <span class="cell-sub">Stored locally in <code>config/task_worklog_config.json</code></span>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn" onclick="closeModal('setupModalBackdrop')">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="saveSetupBtn">Save &amp; Load Sheet</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script>
+    let state = {
+      activeTab: "tasks",
+      spreadsheet: {},
+      setup: { sync_md_default: true, saved_sheets: [] },
+      employee: {},
+      dropdowns: { staff: [], departments: [], priorities: [], difficulties: [], projects: [] },
+      tasks: [],
+      worklogs: [],
+      taskStatusFilter: "all",
+      wlStatusFilter: "all",
+      editingTaskRow: null,
+      editingTaskSnapshot: null,
+      editingWlRow: null,
+      editingWlSnapshot: null,
+      pendingDelete: null,
+    };
+
+    // --- Date Utilities ---
+    function todayISO() {
+      const d = new Date();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    }
+
+    function parseSheetDateToISO(str) {
+      const s = (str || "").trim();
+      if (!s) return "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (!m) return "";
+      let year = parseInt(m[3], 10);
+      if (year < 100) year += 2000;
+      const month = String(parseInt(m[1], 10)).padStart(2, "0");
+      const day = String(parseInt(m[2], 10)).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showToast(msg, type = "info") {
+      const wrap = document.getElementById("toastWrap");
+      const el = document.createElement("div");
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      wrap.appendChild(el);
+      setTimeout(() => {
+        el.remove();
+      }, 3800);
+    }
+
+    async function apiFetch(url, options = {}) {
+      const res = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 409) {
+          showToast(data.error || "Sheet changed externally — refreshing.", "error");
+          await loadBootstrap(false);
+        }
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      return data;
+    }
+
+    async function loadBootstrap(showMsg = false) {
+      const btn = document.getElementById("refreshBtn");
+      const errBanner = document.getElementById("loadErrorBanner");
+      btn.disabled = true;
+      btn.textContent = "Loading...";
+      try {
+        const data = await apiFetch("/api/bootstrap");
+        errBanner.classList.add("hidden");
+        applyBootstrap(data);
+        if (data.needs_setup) {
+          document.getElementById("loadErrorText").textContent =
+            "No Google Sheet is configured yet. Click Open Setup to paste your Google Sheet link.";
+          errBanner.classList.remove("hidden");
+          openSetupModal();
+        } else if (showMsg) {
+          showToast("Synced latest records from Google Sheets.", "success");
+        }
+      } catch (err) {
+        document.getElementById("loadErrorText").textContent = err.message;
+        errBanner.classList.remove("hidden");
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "↻ Refresh";
+      }
+    }
+
+    function applyBootstrap(data) {
+      state.spreadsheet = data.spreadsheet || {};
+      state.setup = data.setup || { sync_md_default: false, saved_sheets: [] };
+      state.employee = data.employee || {};
+      state.dropdowns = data.dropdowns || {};
+      state.tasks = data.tasks || [];
+      state.worklogs = data.worklogs || [];
+
+      const sheetLink = document.getElementById("sheetLink");
+      const sheetSep = document.getElementById("sheetLinkSep");
+      if (state.spreadsheet.url) {
+        sheetLink.href = state.spreadsheet.url;
+        sheetLink.classList.remove("hidden");
+        sheetSep.classList.remove("hidden");
+      } else {
+        sheetLink.classList.add("hidden");
+        sheetSep.classList.add("hidden");
+      }
+
+      if (data.needs_setup) {
+        document.getElementById("employeeBadge").textContent = "No Google Sheet configured";
+        document.getElementById("activeSheetTitleBadge").textContent = "Setup Required";
+        document.getElementById("activeSheetTitleBadge").className = "badge badge-amber";
+      } else {
+        document.getElementById("employeeBadge").textContent =
+          `${state.employee.name || "Employee"}${state.employee.id ? " • ID " + state.employee.id : ""}${state.employee.department ? " • " + state.employee.department : ""}`;
+        const titleBadge = document.getElementById("activeSheetTitleBadge");
+        titleBadge.textContent = state.spreadsheet.title || "Connected Sheet";
+        titleBadge.className = "badge badge-blue";
+      }
+
+      const pill = document.getElementById("healthPill");
+      const empOk = !!state.employee.check_employee_all;
+      const supOk = !!state.employee.check_supervisor_all;
+      if (empOk && supOk) {
+        pill.className = "health-pill ok";
+        pill.textContent = "Tasks Report Valid ✓";
+      } else if (!empOk) {
+        pill.className = "health-pill err";
+        pill.textContent = `⚠ ${state.employee.status_message_2 || state.employee.status_message_1 || "Employee Check Failed"}`;
+      } else {
+        pill.className = "health-pill warn";
+        pill.textContent = `⚠ ${state.employee.status_message_2 || "Ask Supervisor to Comment"}`;
+      }
+
+      document.getElementById("tasksCountBadge").textContent = state.tasks.length;
+      document.getElementById("worklogCountBadge").textContent = state.worklogs.length;
+
+      hydrateFilterSelects();
+      hydrateModalDropdowns();
+      renderTasks();
+      renderWorklogs();
+    }
+
+    function hydrateFilterSelects() {
+      // Task months
+      const monthSel = document.getElementById("taskMonthFilter");
+      const prevMonth = monthSel.value;
+      const months = new Set();
+      state.tasks.forEach(t => {
+        const iso = parseSheetDateToISO(t.completion_date) || parseSheetDateToISO(t.expected_deadline) || parseSheetDateToISO(t.date_of_entry);
+        if (iso) months.add(iso.slice(0, 7));
+      });
+      const sortedMonths = [...months].sort().reverse();
+      monthSel.innerHTML = `<option value="">All Months</option>` +
+        sortedMonths.map(m => `<option value="${m}">${m}</option>`).join("");
+      if (sortedMonths.includes(prevMonth)) monthSel.value = prevMonth;
+
+      // Priority filter
+      const prioSel = document.getElementById("taskPriorityFilter");
+      const prevPrio = prioSel.value;
+      const prios = state.dropdowns.priorities || ["High", "Medium", "Low"];
+      prioSel.innerHTML = `<option value="">All Priorities</option>` +
+        prios.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+      prioSel.value = prevPrio;
+
+      // Work log projects filter & datalist
+      const projSel = document.getElementById("wlProjectFilter");
+      const prevProj = projSel.value;
+      const projects = state.dropdowns.projects || [];
+      projSel.innerHTML = `<option value="">All Projects</option>` +
+        projects.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+      if (projects.includes(prevProj)) projSel.value = prevProj;
+
+      document.getElementById("wlProjectDatalist").innerHTML =
+        projects.map(p => `<option value="${escapeHtml(p)}"></option>`).join("");
+    }
+
+    function hydrateModalDropdowns() {
+      const fill = (id, items, includeBlank) => {
+        const el = document.getElementById(id);
+        const cur = el.value;
+        let html = includeBlank ? `<option value="">— None —</option>` : "";
+        html += (items || []).map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+        el.innerHTML = html;
+        if (cur) el.value = cur;
+      };
+      fill("tf_other_person", state.dropdowns.staff, true);
+      fill("tf_other_department", state.dropdowns.departments, true);
+      fill("tf_priority", state.dropdowns.priorities, false);
+      fill("tf_difficulty", state.dropdowns.difficulties, false);
+    }
+
+    function switchTab(tab) {
+      state.activeTab = tab;
+      document.getElementById("tabBtnTasks").classList.toggle("active", tab === "tasks");
+      document.getElementById("tabBtnWorklog").classList.toggle("active", tab === "worklogs");
+      document.getElementById("tasksView").classList.toggle("hidden", tab !== "tasks");
+      document.getElementById("worklogsView").classList.toggle("hidden", tab !== "worklogs");
+      document.getElementById("primaryNewBtn").textContent = tab === "tasks" ? "+ New Task" : "+ New Work Log";
+    }
+
+    function openPrimaryNew() {
+      if (state.activeTab === "tasks") openTaskModal();
+      else openWorklogModal();
+    }
+
+    function jumpToAttention() {
+      switchTab("tasks");
+      state.taskStatusFilter = "attention";
+      document.querySelectorAll("#taskStatusPills .pill-filter").forEach(b => {
+        b.classList.toggle("active", b.dataset.val === "attention");
+      });
+      renderTasks();
+    }
+
+    // --- TASKS RENDER ---
+    function isCheckPass(val) {
+      const s = String(val ?? "").trim().toUpperCase();
+      return s === "1" || s === "TRUE";
+    }
+
+    function taskNeedsAttention(t) {
+      return !isCheckPass(t.check_employee) || !isCheckPass(t.check_supervisor);
+    }
+
+    function renderTasks() {
+      const all = state.tasks;
+      const pendingCount = all.filter(t => !t.completion_date).length;
+      const completedCount = all.filter(t => !!t.completion_date).length;
+      const behindCount = all.filter(t => t.status_of_task === "Behind Schedule" || Number(t.delay_days || 0) > 0).length;
+      const attnCount = all.filter(taskNeedsAttention).length;
+      const sumEst = all.reduce((acc, t) => acc + (parseFloat(t.est_time) || 0), 0);
+      const sumAct = all.reduce((acc, t) => acc + (parseFloat(t.act_time) || 0), 0);
+
+      document.getElementById("tasksKpis").innerHTML = `
+        <div class="kpi-card"><div class="kpi-label">Total Tasks</div><div class="kpi-value">${all.length}</div><div class="kpi-sub">Rows 9–${state.spreadsheet.last_task_row || 9} (Max ${state.spreadsheet.tasks_max_row || 150})</div></div>
+        <div class="kpi-card"><div class="kpi-label">Pending Tasks</div><div class="kpi-value" style="color:var(--primary)">${pendingCount}</div><div class="kpi-sub">No completion date yet</div></div>
+        <div class="kpi-card"><div class="kpi-label">Completed Tasks</div><div class="kpi-value" style="color:var(--green)">${completedCount}</div><div class="kpi-sub">100% done</div></div>
+        <div class="kpi-card"><div class="kpi-label">Behind / Delayed</div><div class="kpi-value" style="color:${behindCount ? 'var(--red)' : 'var(--text)'}">${behindCount}</div><div class="kpi-sub">Needs attention: ${attnCount}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Logged Hours</div><div class="kpi-value">${sumAct.toFixed(1)}h</div><div class="kpi-sub">Estimated: ${sumEst.toFixed(1)}h</div></div>
+      `;
+
+      const q = document.getElementById("taskSearch").value.trim().toLowerCase();
+      const month = document.getElementById("taskMonthFilter").value;
+      const prio = document.getElementById("taskPriorityFilter").value;
+      const sf = state.taskStatusFilter;
+      const sortMode = document.getElementById("taskSort").value;
+
+      let filtered = all.filter(t => {
+        if (q) {
+          const hay = [
+            t.sn, t.detail, t.expected_outcome, t.other_person, t.other_department,
+            t.delay_reason, t.remarks, t.supervisor_comments, t.clarification
+          ].join(" ").toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        if (month) {
+          const iso = parseSheetDateToISO(t.completion_date) || parseSheetDateToISO(t.expected_deadline) || parseSheetDateToISO(t.date_of_entry);
+          if (!iso.startsWith(month)) return false;
+        }
+        if (prio && t.priority !== prio) return false;
+        if (sf === "pending" && t.completion_date) return false;
+        if (sf === "completed" && !t.completion_date) return false;
+        if (sf === "behind" && !(t.status_of_task === "Behind Schedule" || Number(t.delay_days || 0) > 0)) return false;
+        if (sf === "attention" && !taskNeedsAttention(t)) return false;
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        if (sortMode === "row_asc") return a.row - b.row;
+        if (sortMode === "deadline_asc") {
+          const da = parseSheetDateToISO(a.expected_deadline) || "9999-99-99";
+          const db = parseSheetDateToISO(b.expected_deadline) || "9999-99-99";
+          return da.localeCompare(db) || (b.row - a.row);
+        }
+        if (sortMode === "entry_desc") {
+          const da = parseSheetDateToISO(a.date_of_entry) || "";
+          const db = parseSheetDateToISO(b.date_of_entry) || "";
+          return db.localeCompare(da) || (b.row - a.row);
+        }
+        return b.row - a.row;
+      });
+
+      const tbody = document.getElementById("tasksTbody");
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No tasks match the current filters.</td></tr>`;
+      } else {
+        tbody.innerHTML = filtered.map(t => {
+          const pctNum = parseFloat(String(t.pct_completed || "0").replace("%", "")) || 0;
+          const isDone = !!t.completion_date;
+          const delayNum = parseInt(t.delay_days || "0", 10) || 0;
+          const prioBadge = t.priority === "High" ? "badge-red" : (t.priority === "Medium" ? "badge-amber" : "badge-slate");
+          const schedBadge = t.status_of_task === "Behind Schedule" ? "badge-red" : "badge-green";
+          const empOk = isCheckPass(t.check_employee);
+          const supOk = isCheckPass(t.check_supervisor);
+
+          return `
+            <tr>
+              <td class="mono">
+                <div style="font-weight:700;">#${escapeHtml(t.sn || "-")}</div>
+                <div class="cell-sub">Row ${t.row}</div>
+              </td>
+              <td style="font-size:12px;">
+                <div><strong>Entry:</strong> ${escapeHtml(t.date_of_entry || "—")}</div>
+                <div><strong>Est:</strong> ${escapeHtml(t.est_start_date || "—")}</div>
+                <div><strong>Due:</strong> ${escapeHtml(t.expected_deadline || "—")}</div>
+                <div><strong>Done:</strong> ${isDone ? `<span style="color:var(--green);font-weight:700;">${escapeHtml(t.completion_date)}</span>` : `<span style="color:var(--primary);font-weight:600;">Pending</span>`}</div>
+              </td>
+              <td>
+                <div class="cell-title">${escapeHtml(t.detail)}</div>
+                <div class="cell-sub"><strong>Outcome:</strong> ${escapeHtml(t.expected_outcome || "—")}</div>
+                <div class="meta-tags">
+                  ${t.other_person ? `<span class="badge badge-blue">👤 ${escapeHtml(t.other_person)}</span>` : ""}
+                  ${t.other_department ? `<span class="badge badge-purple">🏢 ${escapeHtml(t.other_department)}</span>` : ""}
+                  ${t.supervisor_comments ? `<span class="badge badge-slate">💬 Sup: ${escapeHtml(t.supervisor_comments)}</span>` : ""}
+                </div>
+                ${t.delay_reason ? `<div class="cell-sub" style="margin-top:5px;color:var(--amber);"><strong>Delay reason:</strong> ${escapeHtml(t.delay_reason)}</div>` : ""}
+                ${t.remarks ? `<div class="cell-sub" style="margin-top:3px;"><strong>Remarks:</strong> ${escapeHtml(t.remarks)}</div>` : ""}
+                ${t.clarification ? `<div class="cell-sub" style="margin-top:3px;"><strong>Clarification:</strong> ${escapeHtml(t.clarification)}</div>` : ""}
+              </td>
+              <td>
+                <div style="margin-bottom:5px;"><span class="badge ${prioBadge}">${escapeHtml(t.priority || "—")}</span></div>
+                <div class="cell-sub">${escapeHtml(t.difficulty || "—")}</div>
+              </td>
+              <td>
+                <div style="font-size:12px;"><strong>Est:</strong> ${escapeHtml(t.est_time || "0")}h • <strong>Act:</strong> ${escapeHtml(t.act_time || "—")}${t.act_time ? "h" : ""}</div>
+                <div class="progress-wrap"><div class="progress-bar ${pctNum >= 100 ? "done" : ""}" style="width:${Math.min(100, Math.max(0, pctNum))}%"></div></div>
+                <div class="cell-sub mono" style="margin-top:3px;">${escapeHtml(t.pct_completed || "0%")}</div>
+              </td>
+              <td>
+                <div style="display:flex; flex-direction:column; gap:5px; align-items:flex-start;">
+                  ${t.status_of_task ? `<span class="badge ${schedBadge}">${escapeHtml(t.status_of_task)}</span>` : `<span class="badge badge-slate">Unscheduled</span>`}
+                  ${delayNum > 0 ? `<span class="badge badge-red">+${delayNum}d delay</span>` : ""}
+                  <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                    <span class="badge ${empOk ? "badge-green" : "badge-red"}">Emp ${empOk ? "✓" : "!"}</span>
+                    <span class="badge ${supOk ? "badge-green" : "badge-amber"}">Sup ${supOk ? "✓" : "!"}</span>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="actions-col">
+                  <button class="btn btn-xs" onclick="openTaskModal(${t.row})">Edit</button>
+                  ${!isDone ? `<button class="btn btn-xs btn-success" onclick="openTaskModal(${t.row}, true)" title="Complete this task">Complete</button>` : ""}
+                  <button class="btn btn-xs" onclick="duplicateTask(${t.row})" title="Duplicate as new task">Copy</button>
+                  <button class="btn btn-xs btn-danger" onclick="promptDeleteTask(${t.row})">Delete</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+      document.getElementById("tasksFooterInfo").textContent = `Showing ${filtered.length} of ${all.length} tasks`;
+    }
+
+    // --- WORK LOGS RENDER ---
+    function formatMinutes(mins) {
+      const m = parseFloat(mins) || 0;
+      const hrs = (m / 60).toFixed(1).replace(/\.0$/, "");
+      return m >= 60 ? `${m}m (${hrs}h)` : `${m}m`;
+    }
+
+    function renderWorklogs() {
+      const all = state.worklogs;
+      const today = todayISO();
+      const thisMonth = today.slice(0, 7);
+      const todayMins = all.filter(w => parseSheetDateToISO(w.date) === today).reduce((a, w) => a + (parseFloat(w.time_minutes) || 0), 0);
+      const monthMins = all.filter(w => parseSheetDateToISO(w.date).startsWith(thisMonth)).reduce((a, w) => a + (parseFloat(w.time_minutes) || 0), 0);
+      const ongoingCount = all.filter(w => w.status === "On-going").length;
+      const completeCount = all.filter(w => w.status === "Complete").length;
+
+      document.getElementById("worklogKpis").innerHTML = `
+        <div class="kpi-card"><div class="kpi-label">Total Work Logs</div><div class="kpi-value">${all.length}</div><div class="kpi-sub">Next row: ${(state.spreadsheet.last_worklog_row || 9) + 1}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Logged Today</div><div class="kpi-value" style="color:var(--primary)">${(todayMins / 60).toFixed(1)}h</div><div class="kpi-sub">${todayMins} minutes (${today})</div></div>
+        <div class="kpi-card"><div class="kpi-label">This Month (${thisMonth})</div><div class="kpi-value">${(monthMins / 60).toFixed(1)}h</div><div class="kpi-sub">${monthMins} minutes total</div></div>
+        <div class="kpi-card"><div class="kpi-label">On-going</div><div class="kpi-value" style="color:var(--amber)">${ongoingCount}</div><div class="kpi-sub">Active items</div></div>
+        <div class="kpi-card"><div class="kpi-label">Completed</div><div class="kpi-value" style="color:var(--green)">${completeCount}</div><div class="kpi-sub">Finished entries</div></div>
+      `;
+
+      const q = document.getElementById("wlSearch").value.trim().toLowerCase();
+      const preset = document.getElementById("wlDatePreset").value;
+      const fromD = document.getElementById("wlDateFrom").value;
+      const toD = document.getElementById("wlDateTo").value;
+      const proj = document.getElementById("wlProjectFilter").value;
+      const sf = state.wlStatusFilter;
+      const sortMode = document.getElementById("wlSort").value;
+
+      const weekAgoDate = new Date();
+      weekAgoDate.setDate(weekAgoDate.getDate() - 7);
+      const weekAgoISO = `${weekAgoDate.getFullYear()}-${String(weekAgoDate.getMonth() + 1).padStart(2, "0")}-${String(weekAgoDate.getDate()).padStart(2, "0")}`;
+
+      let filtered = all.filter(w => {
+        if (q) {
+          const hay = [w.sn, w.date, w.project, w.task, w.comments].join(" ").toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        const iso = parseSheetDateToISO(w.date);
+        if (preset === "today" && iso !== today) return false;
+        if (preset === "week" && (!iso || iso < weekAgoISO)) return false;
+        if (preset === "month" && !iso.startsWith(thisMonth)) return false;
+        if (preset === "custom") {
+          if (fromD && (!iso || iso < fromD)) return false;
+          if (toD && (!iso || iso > toD)) return false;
+        }
+        if (proj && w.project !== proj) return false;
+        if (sf !== "all" && w.status !== sf) return false;
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        if (sortMode === "row_asc") return a.row - b.row;
+        if (sortMode === "time_desc") return (parseFloat(b.time_minutes) || 0) - (parseFloat(a.time_minutes) || 0) || (b.row - a.row);
+        return b.row - a.row;
+      });
+
+      const filteredMins = filtered.reduce((acc, w) => acc + (parseFloat(w.time_minutes) || 0), 0);
+
+      const tbody = document.getElementById("worklogsTbody");
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No work log entries match the current filters.</td></tr>`;
+      } else {
+        tbody.innerHTML = filtered.map(w => {
+          const isDone = w.status === "Complete";
+          const nextStatus = isDone ? "On-going" : "Complete";
+          return `
+            <tr>
+              <td class="mono">
+                <div style="font-weight:700;">#${escapeHtml(w.sn || "-")}</div>
+                <div class="cell-sub">Row ${w.row}</div>
+              </td>
+              <td class="mono" style="white-space:nowrap;">${escapeHtml(w.date)}</td>
+              <td><span class="badge badge-blue">${escapeHtml(w.project)}</span></td>
+              <td>
+                <div class="cell-title" style="font-weight:500;">${escapeHtml(w.task)}</div>
+                ${w.comments ? `<div class="cell-sub" style="margin-top:4px;">💬 ${escapeHtml(w.comments)}</div>` : ""}
+              </td>
+              <td class="mono" style="font-weight:700; white-space:nowrap;">${escapeHtml(formatMinutes(w.time_minutes))}</td>
+              <td>
+                <span class="badge ${isDone ? "badge-green" : "badge-amber"}">${escapeHtml(w.status)}</span>
+              </td>
+              <td>
+                <div class="actions-col">
+                  <button class="btn btn-xs" onclick="openWorklogModal(${w.row})">Edit</button>
+                  <button class="btn btn-xs" onclick="quickToggleWorklogStatus(${w.row}, '${nextStatus}')" title="Switch to ${nextStatus}">${isDone ? "Reopen" : "Complete"}</button>
+                  <button class="btn btn-xs" onclick="duplicateWorklog(${w.row})" title="Duplicate entry">Copy</button>
+                  <button class="btn btn-xs btn-danger" onclick="promptDeleteWorklog(${w.row})">Delete</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+      document.getElementById("worklogFooterInfo").textContent =
+        `Showing ${filtered.length} of ${all.length} entries • Filtered time: ${filteredMins} mins (${(filteredMins / 60).toFixed(2)} hrs)`;
+    }
+
+    // --- MODALS ---
+    function openModal(id) {
+      document.getElementById(id).classList.add("open");
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove("open");
+    }
+
+    // --- TASK MODAL LOGIC ---
+    function openTaskModal(row = null, markCompleteMode = false) {
+      hydrateModalDropdowns();
+      const t = row ? state.tasks.find(x => x.row === row) : null;
+      state.editingTaskRow = t ? t.row : null;
+      state.editingTaskSnapshot = t ? { detail: t.detail, date_of_entry: t.date_of_entry } : null;
+
+      document.getElementById("taskModalTitle").textContent = t ? `Edit Task #${t.sn} (Row ${t.row})` : "New Task Entry";
+      document.getElementById("taskSubmitBtn").textContent = t ? "Update Task" : "Add Task";
+      document.getElementById("tf_allow_partial").checked = false;
+
+      const today = todayISO();
+      document.getElementById("tf_date_of_entry").value = t ? parseSheetDateToISO(t.date_of_entry) : today;
+      document.getElementById("tf_detail").value = t ? t.detail : "";
+      document.getElementById("tf_expected_outcome").value = t ? t.expected_outcome : "";
+      document.getElementById("tf_other_person").value = t ? t.other_person : "";
+      document.getElementById("tf_other_department").value = t ? t.other_department : "Management";
+      document.getElementById("tf_priority").value = t ? (t.priority || "High") : "High";
+      document.getElementById("tf_difficulty").value = t ? (t.difficulty || "Moderate") : "Moderate";
+      document.getElementById("tf_est_start_date").value = t ? parseSheetDateToISO(t.est_start_date) : today;
+      document.getElementById("tf_expected_deadline").value = t ? parseSheetDateToISO(t.expected_deadline) : today;
+      document.getElementById("tf_est_time").value = t ? t.est_time : "";
+      document.getElementById("tf_act_start_date").value = t ? parseSheetDateToISO(t.act_start_date) : "";
+      document.getElementById("tf_completion_date").value = t ? parseSheetDateToISO(t.completion_date) : "";
+      document.getElementById("tf_act_time").value = t ? t.act_time : "";
+
+      const pctVal = t ? (parseFloat(String(t.pct_completed || "0").replace("%", "")) || 0) : 0;
+      setTaskPct(pctVal);
+
+      document.getElementById("tf_delay_reason").value = t ? t.delay_reason : "";
+      document.getElementById("tf_remarks").value = t ? t.remarks : "";
+      document.getElementById("tf_supervisor_comments").value = t ? t.supervisor_comments : "";
+      document.getElementById("tf_clarification").value = t ? t.clarification : "";
+
+      if (markCompleteMode) {
+        quickFillTaskComplete();
+      }
+      updateTaskCheckPreview();
+      openModal("taskModalBackdrop");
+      setTimeout(() => document.getElementById("tf_detail").focus(), 40);
+    }
+
+    function duplicateTask(row) {
+      const t = state.tasks.find(x => x.row === row);
+      if (!t) return;
+      openTaskModal(null);
+      document.getElementById("tf_detail").value = t.detail;
+      document.getElementById("tf_expected_outcome").value = t.expected_outcome;
+      document.getElementById("tf_other_person").value = t.other_person;
+      document.getElementById("tf_other_department").value = t.other_department;
+      document.getElementById("tf_priority").value = t.priority || "High";
+      document.getElementById("tf_difficulty").value = t.difficulty || "Moderate";
+      document.getElementById("tf_est_time").value = t.est_time;
+      updateTaskCheckPreview();
+    }
+
+    function setTaskPct(val) {
+      const n = Math.min(100, Math.max(0, Number(val) || 0));
+      document.getElementById("tf_pct_completed").value = n;
+      document.getElementById("tf_pct_range").value = n;
+      document.getElementById("tf_pct_label").textContent = `${n}%`;
+    }
+
+    function quickFillTaskComplete() {
+      const today = todayISO();
+      const estStart = document.getElementById("tf_est_start_date").value;
+      const estTime = document.getElementById("tf_est_time").value;
+      if (!document.getElementById("tf_act_start_date").value) {
+        document.getElementById("tf_act_start_date").value = estStart || today;
+      }
+      if (!document.getElementById("tf_completion_date").value) {
+        document.getElementById("tf_completion_date").value = today;
+      }
+      if (!document.getElementById("tf_act_time").value && estTime) {
+        document.getElementById("tf_act_time").value = estTime;
+      }
+      setTaskPct(100);
+      updateTaskCheckPreview();
+    }
+
+    function updateTaskCheckPreview() {
+      const detail = document.getElementById("tf_detail").value.trim();
+      const prio = document.getElementById("tf_priority").value.trim();
+      const diff = document.getElementById("tf_difficulty").value.trim();
+      const outcome = document.getElementById("tf_expected_outcome").value.trim();
+      const estStart = document.getElementById("tf_est_start_date").value;
+      const deadline = document.getElementById("tf_expected_deadline").value;
+      const estTime = document.getElementById("tf_est_time").value;
+      const actStart = document.getElementById("tf_act_start_date").value;
+      const compDate = document.getElementById("tf_completion_date").value;
+      const actTime = document.getElementById("tf_act_time").value;
+      const pct = parseFloat(document.getElementById("tf_pct_completed").value) || 0;
+      const delayReason = document.getElementById("tf_delay_reason").value.trim();
+      const supComment = document.getElementById("tf_supervisor_comments").value.trim();
+
+      const errs = [];
+      if (!detail) errs.push("Detail");
+      if (!prio) errs.push("Priority");
+      if (!diff) errs.push("Difficulty");
+      if (!outcome) errs.push("Expected Outcome");
+      if (!estStart) errs.push("Est. Start Date");
+      if (!deadline) errs.push("Expected Deadline");
+      if (estTime === "" || Number(estTime) < 0) errs.push("Est. Time >= 0");
+
+      if (compDate) {
+        if (!actStart) errs.push("Actual Start Date (needed when completed)");
+        if (!actTime || Number(actTime) <= 0) errs.push("Actual Time > 0 (needed when completed)");
+        if (pct !== 100) errs.push("% Completed must be 100%");
+      }
+
+      const today = todayISO();
+      const isDelayed = deadline && ((compDate && compDate > deadline) || (!compDate && today > deadline));
+      document.getElementById("tf_delay_req_badge").classList.toggle("hidden", !isDelayed);
+      document.getElementById("tf_delay_reason").classList.toggle("highlight-req", !!(isDelayed && !delayReason));
+
+      if (isDelayed && !delayReason) {
+        errs.push("Delay Reason (overdue past deadline)");
+      }
+
+      const banner = document.getElementById("taskLiveCheckBanner");
+      if (errs.length === 0) {
+        let supHint = (isDelayed && compDate && !supComment)
+          ? " • Note: Behind schedule & completed → Supervisor Check (W) will wait for Supervisor Comment."
+          : "";
+        banner.className = "check-banner ok";
+        banner.textContent = `Tasks Sheet Check (Col V): Passes all required fields ✓${supHint}`;
+      } else {
+        banner.className = "check-banner warn";
+        banner.textContent = `Tasks Sheet Check (Col V) requires: ${errs.join(", ")}`;
+      }
+    }
+
+    async function submitTaskForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById("taskSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      try {
+        const payload = {
+          date_of_entry: document.getElementById("tf_date_of_entry").value,
+          detail: document.getElementById("tf_detail").value,
+          other_person: document.getElementById("tf_other_person").value,
+          other_department: document.getElementById("tf_other_department").value,
+          priority: document.getElementById("tf_priority").value,
+          difficulty: document.getElementById("tf_difficulty").value,
+          est_start_date: document.getElementById("tf_est_start_date").value,
+          act_start_date: document.getElementById("tf_act_start_date").value,
+          expected_deadline: document.getElementById("tf_expected_deadline").value,
+          completion_date: document.getElementById("tf_completion_date").value,
+          est_time: document.getElementById("tf_est_time").value,
+          act_time: document.getElementById("tf_act_time").value,
+          pct_completed: document.getElementById("tf_pct_completed").value,
+          delay_reason: document.getElementById("tf_delay_reason").value,
+          expected_outcome: document.getElementById("tf_expected_outcome").value,
+          remarks: document.getElementById("tf_remarks").value,
+          supervisor_comments: document.getElementById("tf_supervisor_comments").value,
+          clarification: document.getElementById("tf_clarification").value,
+          allow_partial: document.getElementById("tf_allow_partial").checked,
+          expected_snapshot: state.editingTaskSnapshot,
+        };
+
+        let data;
+        if (state.editingTaskRow) {
+          data = await apiFetch(`/api/tasks/${state.editingTaskRow}`, {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          });
+          showToast(`Task row ${state.editingTaskRow} updated!`, "success");
+        } else {
+          data = await apiFetch("/api/tasks", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          showToast(`Task added at row ${data.affected_row}!`, "success");
+        }
+        applyBootstrap(data);
+        closeModal("taskModalBackdrop");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = state.editingTaskRow ? "Update Task" : "Add Task";
+      }
+    }
+
+    // --- WORK LOG MODAL LOGIC ---
+    function openWorklogModal(row = null) {
+      const w = row ? state.worklogs.find(x => x.row === row) : null;
+      state.editingWlRow = w ? w.row : null;
+      state.editingWlSnapshot = w ? { task: w.task, project: w.project, date: w.date } : null;
+
+      document.getElementById("wlModalTitle").textContent = w ? `Edit Work Log #${w.sn} (Row ${w.row})` : "New Work Log Entry";
+      document.getElementById("wlSubmitBtn").textContent = w ? "Update Work Log" : "Add Work Log";
+      document.getElementById("wlModalHint").textContent = w ? `Updating row ${w.row}` : `Next available row: ${(state.spreadsheet.last_worklog_row || 9) + 1}`;
+
+      document.getElementById("wf_date").value = w ? parseSheetDateToISO(w.date) : todayISO();
+      document.getElementById("wf_status").value = w ? (w.status || "Complete") : "Complete";
+      document.getElementById("wf_project").value = w ? w.project : "";
+      document.getElementById("wf_task").value = w ? w.task : "";
+      document.getElementById("wf_time_minutes").value = w ? w.time_minutes : "30";
+      document.getElementById("wf_comments").value = w ? w.comments : "";
+      document.getElementById("wf_sync_md").checked = !!state.setup.sync_md_default;
+
+      openModal("wlModalBackdrop");
+      setTimeout(() => document.getElementById(w ? "wf_task" : "wf_project").focus(), 40);
+    }
+
+    function duplicateWorklog(row) {
+      const w = state.worklogs.find(x => x.row === row);
+      if (!w) return;
+      openWorklogModal(null);
+      document.getElementById("wf_project").value = w.project;
+      document.getElementById("wf_task").value = w.task;
+      document.getElementById("wf_time_minutes").value = w.time_minutes;
+      document.getElementById("wf_status").value = w.status;
+      document.getElementById("wf_comments").value = w.comments;
+    }
+
+    function setWlMinutes(mins) {
+      document.getElementById("wf_time_minutes").value = mins;
+    }
+
+    async function submitWorklogForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById("wlSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      try {
+        const payload = {
+          date: document.getElementById("wf_date").value,
+          status: document.getElementById("wf_status").value,
+          project: document.getElementById("wf_project").value,
+          task: document.getElementById("wf_task").value,
+          time_minutes: document.getElementById("wf_time_minutes").value,
+          comments: document.getElementById("wf_comments").value,
+          sync_md: document.getElementById("wf_sync_md").checked,
+          expected_snapshot: state.editingWlSnapshot,
+        };
+        let data;
+        if (state.editingWlRow) {
+          data = await apiFetch(`/api/worklogs/${state.editingWlRow}`, {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          });
+          showToast(`Work log row ${state.editingWlRow} updated!`, "success");
+        } else {
+          data = await apiFetch("/api/worklogs", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          showToast(`Work log added at row ${data.affected_row}!`, "success");
+        }
+        applyBootstrap(data);
+        closeModal("wlModalBackdrop");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = state.editingWlRow ? "Update Work Log" : "Add Work Log";
+      }
+    }
+
+    async function quickToggleWorklogStatus(row, newStatus) {
+      const w = state.worklogs.find(x => x.row === row);
+      if (!w) return;
+      try {
+        const data = await apiFetch(`/api/worklogs/${row}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            date: w.date,
+            project: w.project,
+            task: w.task,
+            time_minutes: w.time_minutes,
+            status: newStatus,
+            comments: w.comments,
+            sync_md: !!state.setup.sync_md_default,
+            expected_snapshot: { task: w.task, project: w.project, date: w.date },
+          }),
+        });
+        applyBootstrap(data);
+        showToast(`Row ${row} marked ${newStatus}.`, "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    // --- DELETE FLOW ---
+    function promptDeleteTask(row) {
+      const t = state.tasks.find(x => x.row === row);
+      if (!t) return;
+      state.pendingDelete = {
+        type: "task",
+        row: t.row,
+        expected_snapshot: { detail: t.detail, date_of_entry: t.date_of_entry },
+      };
+      document.getElementById("deleteModalTitle").textContent = `Delete Task #${t.sn} (Row ${t.row})`;
+      document.getElementById("deleteSummaryBox").innerHTML = `
+        <div><strong>Entry Date:</strong> ${escapeHtml(t.date_of_entry)} • <strong>Priority:</strong> ${escapeHtml(t.priority)}</div>
+        <div style="margin-top:6px;"><strong>Task:</strong> ${escapeHtml(t.detail)}</div>
+      `;
+      openModal("deleteModalBackdrop");
+    }
+
+    function promptDeleteWorklog(row) {
+      const w = state.worklogs.find(x => x.row === row);
+      if (!w) return;
+      state.pendingDelete = {
+        type: "worklog",
+        row: w.row,
+        expected_snapshot: { task: w.task, project: w.project, date: w.date },
+      };
+      document.getElementById("deleteModalTitle").textContent = `Delete Work Log #${w.sn} (Row ${w.row})`;
+      document.getElementById("deleteSummaryBox").innerHTML = `
+        <div><strong>Date:</strong> ${escapeHtml(w.date)} • <strong>Project:</strong> ${escapeHtml(w.project)} • <strong>Time:</strong> ${escapeHtml(w.time_minutes)}m</div>
+        <div style="margin-top:6px;"><strong>Task:</strong> ${escapeHtml(w.task)}</div>
+      `;
+      openModal("deleteModalBackdrop");
+    }
+
+    async function executeDelete() {
+      if (!state.pendingDelete) return;
+      const btn = document.getElementById("confirmDeleteBtn");
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+      try {
+        const { type, row, expected_snapshot } = state.pendingDelete;
+        const url = type === "task" ? `/api/tasks/${row}` : `/api/worklogs/${row}`;
+        const data = await apiFetch(url, {
+          method: "DELETE",
+          body: JSON.stringify({
+            expected_snapshot,
+            sync_md: type === "worklog" ? !!state.setup.sync_md_default : false,
+          }),
+        });
+        applyBootstrap(data);
+        closeModal("deleteModalBackdrop");
+        showToast(`${type === "task" ? "Task" : "Work log"} row ${row} deleted.`, "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Delete Record";
+      }
+    }
+
+    // --- SETUP LOGIC ---
+    async function openSetupModal() {
+      const statusBox = document.getElementById("setupTestStatus");
+      statusBox.classList.add("hidden");
+      try {
+        const cfg = await apiFetch("/api/setup");
+        state.setup.saved_sheets = cfg.saved_sheets || [];
+        document.getElementById("sf_sheet_url").value =
+          cfg.url || (cfg.spreadsheet_id ? `https://docs.google.com/spreadsheets/d/${cfg.spreadsheet_id}/edit` : "");
+        document.getElementById("sf_tasks_tab").value = cfg.tasks_tab || "Tasks";
+        document.getElementById("sf_worklog_tab").value = cfg.worklog_tab || "Work log";
+        document.getElementById("sf_data_tab").value = cfg.data_tab || "Data";
+
+        const credsBanner = document.getElementById("setupCredsBanner");
+        if (!cfg.has_credentials) {
+          credsBanner.className = "check-banner warn";
+          credsBanner.textContent =
+            "Missing config/client_secret.json — add your Google Cloud OAuth Desktop JSON file (see README.md) before connecting.";
+          credsBanner.classList.remove("hidden");
+        } else {
+          credsBanner.className = "check-banner ok";
+          credsBanner.textContent = cfg.has_token
+            ? "Google OAuth credentials found ✓ • Signed-in token cached ✓"
+            : "Google OAuth credentials found ✓ • Browser sign-in will open when connecting";
+          credsBanner.classList.remove("hidden");
+        }
+
+        renderSavedSheets(cfg.spreadsheet_id);
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+      openModal("setupModalBackdrop");
+      setTimeout(() => document.getElementById("sf_sheet_url").focus(), 40);
+    }
+
+    function renderSavedSheets(activeId) {
+      const list = state.setup.saved_sheets || [];
+      const wrap = document.getElementById("savedSheetsList");
+      if (!list.length) {
+        wrap.innerHTML = `<div class="cell-sub">No saved sheets yet.</div>`;
+        return;
+      }
+      wrap.innerHTML = list.map(s => {
+        const isActive = s.spreadsheet_id === activeId;
+        const canRemove = !isActive;
+        return `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid ${isActive ? "var(--primary)" : "var(--border)"}; background:${isActive ? "var(--primary-soft)" : "var(--surface-alt)"}; border-radius:8px;">
+            <div style="min-width:0; flex:1;">
+              <div style="font-weight:700; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                ${escapeHtml(s.title || s.spreadsheet_id)}
+                ${isActive ? `<span class="badge badge-blue" style="margin-left:6px;">Active</span>` : ""}
+              </div>
+              <div class="cell-sub mono" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                ${s.employee_name ? escapeHtml(s.employee_name) + " • " : ""}${escapeHtml(s.spreadsheet_id)}
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              ${!isActive ? `<button type="button" class="btn btn-xs btn-primary" onclick="quickSwitchSheet('${escapeHtml(s.spreadsheet_id)}')">Use</button>` : ""}
+              ${!isActive && canRemove ? `<button type="button" class="btn btn-xs" onclick="removeSavedSheet('${escapeHtml(s.spreadsheet_id)}')">Remove</button>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function _getSetupFormPayload() {
+      return {
+        sheet_url: document.getElementById("sf_sheet_url").value,
+        tasks_tab: document.getElementById("sf_tasks_tab").value,
+        worklog_tab: document.getElementById("sf_worklog_tab").value,
+        data_tab: document.getElementById("sf_data_tab").value,
+      };
+    }
+
+    async function testSetupConnection() {
+      const btn = document.getElementById("testSetupBtn");
+      const statusBox = document.getElementById("setupTestStatus");
+      btn.disabled = true;
+      btn.textContent = "Testing...";
+      statusBox.classList.add("hidden");
+      try {
+        const res = await apiFetch("/api/setup/test", {
+          method: "POST",
+          body: JSON.stringify(_getSetupFormPayload()),
+        });
+        statusBox.className = "check-banner ok";
+        statusBox.textContent =
+          `Connected to "${res.title}" ✓ • Employee: ${res.employee_name || "—"} (ID ${res.employee_id || "—"}) • Tabs matched: ${res.tasks_tab}, ${res.worklog_tab}${res.data_tab ? ", " + res.data_tab : ""}`;
+        statusBox.classList.remove("hidden");
+      } catch (err) {
+        statusBox.className = "check-banner warn";
+        statusBox.textContent = err.message;
+        statusBox.classList.remove("hidden");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Test Connection";
+      }
+    }
+
+    async function submitSetupForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById("saveSetupBtn");
+      const statusBox = document.getElementById("setupTestStatus");
+      btn.disabled = true;
+      btn.textContent = "Connecting...";
+      statusBox.classList.add("hidden");
+      try {
+        const data = await apiFetch("/api/setup", {
+          method: "POST",
+          body: JSON.stringify(_getSetupFormPayload()),
+        });
+        document.getElementById("loadErrorBanner").classList.add("hidden");
+        applyBootstrap(data);
+        closeModal("setupModalBackdrop");
+        showToast(`Switched to "${data.spreadsheet?.title || "Google Sheet"}"!`, "success");
+      } catch (err) {
+        statusBox.className = "check-banner warn";
+        statusBox.textContent = err.message;
+        statusBox.classList.remove("hidden");
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Save & Load Sheet";
+      }
+    }
+
+    async function quickSwitchSheet(spreadsheetId) {
+      const item = (state.setup.saved_sheets || []).find(s => s.spreadsheet_id === spreadsheetId);
+      if (!item) return;
+      document.getElementById("sf_sheet_url").value = item.url || item.spreadsheet_id;
+      document.getElementById("sf_tasks_tab").value = item.tasks_tab || "Tasks";
+      document.getElementById("sf_worklog_tab").value = item.worklog_tab || "Work log";
+      document.getElementById("sf_data_tab").value = item.data_tab || "Data";
+      await submitSetupForm(new Event("submit"));
+    }
+
+    async function removeSavedSheet(spreadsheetId) {
+      try {
+        const res = await apiFetch("/api/setup/remove", {
+          method: "POST",
+          body: JSON.stringify({ spreadsheet_id: spreadsheetId }),
+        });
+        state.setup.saved_sheets = res.saved_sheets || [];
+        renderSavedSheets(state.spreadsheet.id);
+        showToast("Removed from saved list.", "info");
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function switchGoogleAccount() {
+      const btn = document.getElementById("reauthBtn");
+      btn.disabled = true;
+      btn.textContent = "Opening Google Login...";
+      try {
+        const data = await apiFetch("/api/setup/reauth", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        document.getElementById("loadErrorBanner").classList.add("hidden");
+        applyBootstrap(data);
+        renderSavedSheets(state.spreadsheet.id);
+        showToast("Google account updated!", "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Switch Google Account";
+      }
+    }
+
+    // --- EVENT LISTENERS ---
+    document.getElementById("taskSearch").addEventListener("input", renderTasks);
+    document.getElementById("taskMonthFilter").addEventListener("change", renderTasks);
+    document.getElementById("taskPriorityFilter").addEventListener("change", renderTasks);
+    document.getElementById("taskSort").addEventListener("change", renderTasks);
+    document.querySelectorAll("#taskStatusPills .pill-filter").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#taskStatusPills .pill-filter").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.taskStatusFilter = btn.dataset.val;
+        renderTasks();
+      });
+    });
+
+    document.getElementById("wlSearch").addEventListener("input", renderWorklogs);
+    document.getElementById("wlDatePreset").addEventListener("change", () => {
+      const custom = document.getElementById("wlDatePreset").value === "custom";
+      document.getElementById("wlDateFrom").classList.toggle("hidden", !custom);
+      document.getElementById("wlDateTo").classList.toggle("hidden", !custom);
+      renderWorklogs();
+    });
+    document.getElementById("wlDateFrom").addEventListener("change", renderWorklogs);
+    document.getElementById("wlDateTo").addEventListener("change", renderWorklogs);
+    document.getElementById("wlProjectFilter").addEventListener("change", renderWorklogs);
+    document.getElementById("wlSort").addEventListener("change", renderWorklogs);
+    document.querySelectorAll("#wlStatusPills .pill-filter").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#wlStatusPills .pill-filter").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.wlStatusFilter = btn.dataset.val;
+        renderWorklogs();
+      });
+    });
+
+    // Task form live preview listeners
+    document.getElementById("tf_pct_range").addEventListener("input", e => {
+      setTaskPct(e.target.value);
+      updateTaskCheckPreview();
+    });
+    document.getElementById("tf_pct_completed").addEventListener("input", e => {
+      setTaskPct(e.target.value);
+      updateTaskCheckPreview();
+    });
+    [
+      "tf_detail", "tf_priority", "tf_difficulty", "tf_expected_outcome",
+      "tf_est_start_date", "tf_expected_deadline", "tf_est_time",
+      "tf_act_start_date", "tf_completion_date", "tf_act_time",
+      "tf_delay_reason", "tf_supervisor_comments"
+    ].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener("input", updateTaskCheckPreview);
+      el.addEventListener("change", updateTaskCheckPreview);
+    });
+
+    // Backdrop click to close & keyboard shortcuts
+    ["taskModalBackdrop", "wlModalBackdrop", "deleteModalBackdrop", "setupModalBackdrop"].forEach(id => {
+      document.getElementById(id).addEventListener("click", e => {
+        if (e.target.id === id) closeModal(id);
+      });
+    });
+
+    document.addEventListener("keydown", e => {
+      const taskOpen = document.getElementById("taskModalBackdrop").classList.contains("open");
+      const wlOpen = document.getElementById("wlModalBackdrop").classList.contains("open");
+      const delOpen = document.getElementById("deleteModalBackdrop").classList.contains("open");
+      const setupOpen = document.getElementById("setupModalBackdrop").classList.contains("open");
+      const anyOpen = taskOpen || wlOpen || delOpen || setupOpen;
+
+      if (e.key === "Escape" && anyOpen) {
+        closeModal("taskModalBackdrop");
+        closeModal("wlModalBackdrop");
+        closeModal("deleteModalBackdrop");
+        closeModal("setupModalBackdrop");
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        if (taskOpen) document.getElementById("taskForm").requestSubmit();
+        else if (wlOpen) document.getElementById("wlForm").requestSubmit();
+        else if (setupOpen) document.getElementById("setupForm").requestSubmit();
+        return;
+      }
+      if (!anyOpen && e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
+        e.preventDefault();
+        document.getElementById(state.activeTab === "tasks" ? "taskSearch" : "wlSearch").focus();
+      }
+    });
+
+    loadBootstrap(false);
+  </script>
+</body>
+</html>
