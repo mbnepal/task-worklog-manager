@@ -28,14 +28,14 @@ Works in **two modes** using the same interface:
 Open: **https://mbnepal.github.io/task-worklog-manager/**
 
 ### One-Time Setup via Google Apps Script (30 seconds)
-1. Open your **Employee Monthly Reporting** Google Sheet → **Extensions → Apps Script**.
+1. Open **[script.google.com](https://script.google.com/home/projects/create)** → **New project** *(or open your Google Sheet → **Extensions → Apps Script** if you own the sheet; using `script.google.com` works even when Apps Script is disabled/locked on a shared company sheet!)*.
 2. Copy the contents of [`apps_script.gs`](./apps_script.gs) (or click **📋 Copy apps_script.gs** directly inside the Setup modal) and paste it into `Code.gs`, then Save.
    - *(Optional)* Set `TWM_ACCESS_PIN` at the top of `apps_script.gs` if you want a PIN lock.
 3. Click **Deploy → New deployment → Select type: Web app**:
    - **Execute as:** `Me`
    - **Who has access:** `Anyone`
 4. Authorize once when prompted and copy the **Web App URL** (ends with `/exec`).
-5. Paste the Web App URL into **⚙ Setup** on **https://mbnepal.github.io/task-worklog-manager/** and click **Test Connection** → **Save & Load Sheet**.
+5. Paste the **Apps Script Web App URL** (and your **Google Sheet Link** if deployed from `script.google.com`) into **⚙ Setup** on **https://mbnepal.github.io/task-worklog-manager/** and click **Test Connection** → **Save & Load Sheet**.
 
 *(An alternative OAuth Web Client ID option is also tucked inside Setup if you ever want direct REST API calls without Apps Script.)*
 

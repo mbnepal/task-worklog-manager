@@ -45,7 +45,7 @@ function twmGetSpreadsheet_(sheetUrlOrId) {
   const active = SpreadsheetApp.getActiveSpreadsheet();
   const id = twmParseSpreadsheetId_(sheetUrlOrId);
   if (!id || (active && id === active.getId())) {
-    if (!active) throw new Error("No active spreadsheet found. Paste a Google Sheet link or bind this script to your sheet.");
+    if (!active) throw new Error("This Apps Script is standalone (not inside a sheet). Paste your Google Sheet Link or ID in Setup.");
     return active;
   }
   return SpreadsheetApp.openById(id);
