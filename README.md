@@ -28,22 +28,16 @@ Works in **two modes** using the same interface:
 
 Open: **https://mbnepal.github.io/task-worklog-manager/**
 
-### One-Time Admin Setup (Once for Your Whole Organization)
-1. Enable **Google Sheets API** in [Google Cloud Console](https://console.cloud.google.com/apis/library/sheets.googleapis.com).
-2. Configure **OAuth consent screen / Audience** (`https://console.cloud.google.com/auth/audience`):
-   - While in **Testing** status, add your team members' Google email addresses under **Test users** (up to 100 users, no Google app verification banner), **or** click **Publish App** to allow any Google account.
-3. Under **[APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)**, click **Create Credentials → OAuth client ID → Web application**:
-   - **Authorized JavaScript origins:** `https://mbnepal.github.io` *(no trailing slash)*
-   - *(No Authorized redirect URIs needed for Google Identity Services popups.)*
-4. Copy the generated **Client ID** (`...apps.googleusercontent.com`) and either:
-   - Paste it once into `DEFAULT_WEB_CLIENT_ID` in `sheets_browser.js`, **OR**
-   - Paste it in **⚙ Setup → Google OAuth Web Client ID Setup** and click **🔗 Copy Team Link** to share `?client_id=...` with teammates.
+### Everyday User Flow (For Any Employee — Zero Developer Setup)
+1. Open **https://mbnepal.github.io/task-worklog-manager/**.
+2. Paste your **Google Sheet Link** (`https://docs.google.com/spreadsheets/d/.../edit`).
+3. Click **Test Connection** (or **Connect & Open Sheet**) → Google prompts you to **Sign in with your Google account**.
+4. Done — your Tasks and Work Log load immediately!
 
-### Everyday User Flow (For Any Employee)
-1. Open the app (or Team Link).
-2. Paste your **Google Sheet Link or Spreadsheet ID** (e.g. `https://docs.google.com/spreadsheets/d/.../edit`).
-3. Click **Test Connection** → Google asks you to **Sign in with your Google account** and verify the sheet.
-4. Click **Save & Load Sheet** — done!
+### Admin Note (Google OAuth Audience / Test Users)
+The app's public Web OAuth Client ID for `https://mbnepal.github.io` is already pre-configured in `sheets_browser.js` (`DEFAULT_WEB_CLIENT_ID`). Until the app is published for everyone, add team members' Google emails under **Google Cloud Console → Google Auth Platform → Audience → Test users** (or complete **Branding** and click **Publish app**).
+
+*(To point a fork or custom domain to your own OAuth Web Client ID, update `DEFAULT_WEB_CLIENT_ID` in `sheets_browser.js` or expand **Advanced Options** in Setup.)*
 
 ---
 

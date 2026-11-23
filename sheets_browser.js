@@ -8,10 +8,10 @@
 
   const STORAGE_KEY = "twm_browser_config_v2";
   const SESSION_TOKEN_KEY = "twm_oauth_session_v1";
-  // Optional one-time public OAuth "Web application" Client ID from Google Cloud Console.
-  // When set, every employee only pastes their Google Sheet link, clicks Test Connection,
-  // signs in with their Google account, and starts working immediately.
-  const DEFAULT_WEB_CLIENT_ID = "";
+  // Public OAuth "Web application" Client ID for https://mbnepal.github.io.
+  // Allows every employee to sign in with their own Google account cleanly
+  // without configuring Google Cloud Console or OAuth settings.
+  const DEFAULT_WEB_CLIENT_ID = "913675373531-31lq334ij94tc316ck09ortethhqlkgb.apps.googleusercontent.com";
   const DEFAULT_TABS = { tasks: "Tasks", worklog: "Work log", data: "Data" };
   const FALLBACK_GIDS = { tasks: 697912632, worklog: 1436624543, data: 1258735725 };
   const TASKS_START_ROW = 9;
