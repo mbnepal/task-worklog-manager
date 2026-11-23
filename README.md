@@ -3,11 +3,15 @@
 A lightweight web application for **creating, editing, filtering, and safely deleting** records in the Employee Monthly Reporting Google Sheet (`Tasks` and `Work log` tabs), with multi-sheet switching via a built-in **Setup** modal.
 
 Works in **two modes** using the same interface:
-1. **Always-Online Static Mode (GitHub Pages):** Hosted at **https://mbnepal.github.io/task-worklog-manager/** — connects directly to your Google Sheet via a lightweight `apps_script.gs` Web App (just like Sujan Store Inventory Manager — **no Google Cloud Console or OAuth Web Client ID required**).
+1. **Always-Online Static Mode (GitHub Pages):** Hosted at **https://mbnepal.github.io/task-worklog-manager/** — lets **every user sign in with their own Google account** directly in the browser (`Sign in with Google`) and enter their Google Sheet link (with an optional Apps Script Web App tab as an alternative).
 2. **Local Python Server Mode:** Run `python task_worklog_manager.py` locally with automatic `Work_Log_History.md` disk syncing.
 
 ## Features
 
+- **Per-User Google Sign-In (`Sign in with Google`)**
+  - Each team member signs in with their own Google account using Google Identity Services (no backend server and no OAuth secrets stored on the host).
+  - Enter your Google Sheet link, click **Test Connection** to sign in and verify sheet access, then **Save & Load Sheet**.
+  - Supports **Switch Google Account**, **Sign Out**, and a 1-click **🔗 Copy Team Link** so colleagues don't need to re-enter the Web Client ID.
 - **Tasks Tab (`Tasks`)**
   - Create, edit, quick-complete, duplicate, and safely delete tasks across editable columns (`B:M`, `O`, `Q:U`).
   - **Formula-Safe Operations:** Never overwrites sheet-wide `ARRAYFORMULA` columns (`A`, `N`, `P`, `V`, `W`). Deleting a row shifts subsequent rows' editable cells upward and clears the bottom row instead of using `deleteDimension`, preserving row-9 `ARRAYFORMULA`s, `V7`/`W7` checks, data validations, and `Report` tab `VLOOKUP`s.
@@ -15,33 +19,45 @@ Works in **two modes** using the same interface:
 - **Work Log Tab (`Work log`)**
   - Create, edit, 1-click status toggle (`On-going` / `Complete`), duplicate, and safely delete daily work log entries across `B:G`.
   - Quick duration chips (`15m`–`240m`), project autocomplete from existing records, date range presets, and `Work_Log_History.md` export/sync.
-- **Multi-Sheet Setup (`⚙ Setup`)**
-  - Connects to your Google Sheet via Apps Script Web App URL (with optional PIN and optional Google Sheet link override to access shared sheets).
-  - Supports custom tab names (`Tasks`, `Work log`, `Data`), connection testing, and quick-switching between saved sheets.
 - **Conflict Protection**
   - Detects external edits before `PUT` / `DELETE` and refreshes the UI instead of overwriting changed rows.
 
 ---
 
-## Option A: Use Online on GitHub Pages (No OAuth Client ID Needed)
+## Option A: Use Online on GitHub Pages (Multi-User Google Sign-In — Recommended)
 
 Open: **https://mbnepal.github.io/task-worklog-manager/**
 
-### One-Time Setup via Google Apps Script (30 seconds)
-1. Open **[script.google.com](https://script.google.com/home/projects/create)** → **New project** *(or open your Google Sheet → **Extensions → Apps Script** if you own the sheet; using `script.google.com` works even when Apps Script is disabled/locked on a shared company sheet!)*.
-2. Copy the contents of [`apps_script.gs`](./apps_script.gs) (or click **📋 Copy apps_script.gs** directly inside the Setup modal) and paste it into `Code.gs`, then Save.
-   - *(Optional)* Set `TWM_ACCESS_PIN` at the top of `apps_script.gs` if you want a PIN lock.
-3. Click **Deploy → New deployment → Select type: Web app**:
-   - **Execute as:** `Me`
-   - **Who has access:** `Anyone`
-4. Authorize once when prompted and copy the **Web App URL** (ends with `/exec`).
-5. Paste the **Apps Script Web App URL** (and your **Google Sheet Link** if deployed from `script.google.com`) into **⚙ Setup** on **https://mbnepal.github.io/task-worklog-manager/** and click **Test Connection** → **Save & Load Sheet**.
+### One-Time Admin Setup (Once for Your Whole Organization)
+1. Enable **Google Sheets API** in [Google Cloud Console](https://console.cloud.google.com/apis/library/sheets.googleapis.com).
+2. Configure **OAuth consent screen / Audience** (`https://console.cloud.google.com/auth/audience`):
+   - While in **Testing** status, add your team members' Google email addresses under **Test users** (up to 100 users, no Google app verification banner), **or** click **Publish App** to allow any Google account.
+3. Under **[APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)**, click **Create Credentials → OAuth client ID → Web application**:
+   - **Authorized JavaScript origins:** `https://mbnepal.github.io` *(no trailing slash)*
+   - *(No Authorized redirect URIs needed for Google Identity Services popups.)*
+4. Copy the generated **Client ID** (`...apps.googleusercontent.com`) and either:
+   - Paste it once into `DEFAULT_WEB_CLIENT_ID` in `sheets_browser.js`, **OR**
+   - Paste it in **⚙ Setup → Google OAuth Web Client ID Setup** and click **🔗 Copy Team Link** to share `?client_id=...` with teammates.
 
-*(An alternative OAuth Web Client ID option is also tucked inside Setup if you ever want direct REST API calls without Apps Script.)*
+### Everyday User Flow (For Any Employee)
+1. Open the app (or Team Link).
+2. Paste your **Google Sheet Link or Spreadsheet ID** (e.g. `https://docs.google.com/spreadsheets/d/.../edit`).
+3. Click **Test Connection** → Google asks you to **Sign in with your Google account** and verify the sheet.
+4. Click **Save & Load Sheet** — done!
 
 ---
 
-## Option B: Run Locally with Python
+## Option B: Apps Script Web App (Alternative for Single Owner / Shared Admin Proxy)
+
+If you prefer a fixed owner-executed endpoint without Google Cloud OAuth setup:
+1. Inside **⚙ Setup**, switch to the **Apps Script Web App** tab.
+2. Open **[script.google.com](https://script.google.com/home/projects/create)** → **New project**, copy [`apps_script.gs`](./apps_script.gs) into `Code.gs`, and Save.
+3. Click **Deploy → New deployment → Web app** (**Execute as:** `Me`, **Who has access:** `Anyone`).
+4. Paste the `/exec` URL and optional Google Sheet link in **⚙ Setup**, then click **Test Connection** → **Save & Load Sheet**.
+
+---
+
+## Option C: Run Locally with Python
 
 ### Prerequisites
 - Python 3.10+

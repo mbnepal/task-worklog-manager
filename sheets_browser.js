@@ -1,28 +1,109 @@
 /**
  * Browser-side Google Sheets adapter for static GitHub Pages hosting.
- * Primary mode: Google Apps Script Web App URL (zero Google Cloud Console / OAuth setup required).
- * Optional fallback mode: Google Identity Services (OAuth Web Client ID) + Sheets REST API v4.
+ * Primary mode: Sign in with Google (Google Identity Services OAuth + Sheets REST API v4).
+ * Alternative mode: Google Apps Script Web App URL.
  */
 (function (global) {
   "use strict";
 
   const STORAGE_KEY = "twm_browser_config_v2";
+  const SESSION_TOKEN_KEY = "twm_oauth_session_v1";
+  // Optional one-time public OAuth "Web application" Client ID from Google Cloud Console.
+  // When set, every employee only pastes their Google Sheet link, clicks Test Connection,
+  // signs in with their Google account, and starts working immediately.
+  const DEFAULT_WEB_CLIENT_ID = "";
   const DEFAULT_TABS = { tasks: "Tasks", worklog: "Work log", data: "Data" };
   const FALLBACK_GIDS = { tasks: 697912632, worklog: 1436624543, data: 1258735725 };
   const TASKS_START_ROW = 9;
   const WORKLOG_START_ROW = 10;
-  const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+  const SCOPES =
+    "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
 
   let tokenClient = null;
   let accessToken = "";
   let tokenExpiresAt = 0;
+  let userEmail = "";
+  let userName = "";
+  let cachedTokenClientId = "";
+
+  function resolveClientId(explicitId) {
+    return String(explicitId || "").trim() || DEFAULT_WEB_CLIENT_ID;
+  }
+
+  function loadSessionToken(expectedClientId) {
+    const cid = resolveClientId(expectedClientId);
+    if (
+      accessToken &&
+      Date.now() < tokenExpiresAt - 30000 &&
+      (!cid || !cachedTokenClientId || cachedTokenClientId === cid)
+    ) {
+      return true;
+    }
+    try {
+      const raw = sessionStorage.getItem(SESSION_TOKEN_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.access_token || Date.now() >= Number(parsed.expires_at || 0) - 30000) {
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        return false;
+      }
+      if (cid && parsed.client_id && parsed.client_id !== cid) {
+        return false;
+      }
+      accessToken = String(parsed.access_token);
+      tokenExpiresAt = Number(parsed.expires_at || 0);
+      userEmail = String(parsed.user_email || "");
+      userName = String(parsed.user_name || "");
+      cachedTokenClientId = String(parsed.client_id || cid || "");
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function saveSessionToken(clientId) {
+    cachedTokenClientId = String(clientId || "").trim();
+    try {
+      sessionStorage.setItem(
+        SESSION_TOKEN_KEY,
+        JSON.stringify({
+          access_token: accessToken,
+          expires_at: tokenExpiresAt,
+          user_email: userEmail,
+          user_name: userName,
+          client_id: cachedTokenClientId,
+        })
+      );
+    } catch (_) {}
+  }
+
+  function clearSessionToken() {
+    accessToken = "";
+    tokenExpiresAt = 0;
+    userEmail = "";
+    userName = "";
+    cachedTokenClientId = "";
+    try {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    } catch (_) {}
+  }
+
+  function signOutGoogle() {
+    const tok = accessToken;
+    clearSessionToken();
+    if (tok && global.google && global.google.accounts && global.google.accounts.oauth2) {
+      try {
+        global.google.accounts.oauth2.revoke(tok, () => {});
+      } catch (_) {}
+    }
+  }
 
   function loadBrowserConfig() {
     const base = {
-      auth_mode: "gas",
+      auth_mode: "oauth",
       gas_url: "",
       gas_pin: "",
-      client_id: "",
+      client_id: DEFAULT_WEB_CLIENT_ID,
       spreadsheet_id: "",
       sheet_url: "",
       tasks_tab: DEFAULT_TABS.tasks,
@@ -40,6 +121,11 @@
       }
     } catch (_) {}
 
+    if (base.auth_mode !== "oauth" && !String(base.gas_url || "").trim()) {
+      base.auth_mode = "oauth";
+    }
+    base.client_id = resolveClientId(base.client_id);
+
     const qs = new URLSearchParams(window.location.search);
     const qGas = (qs.get("gas_url") || "").trim();
     const qClient = (qs.get("client_id") || "").trim();
@@ -47,7 +133,7 @@
     if (qGas) {
       base.auth_mode = "gas";
       base.gas_url = qGas;
-    } else if (qClient && !base.gas_url) {
+    } else if (qClient) {
       base.auth_mode = "oauth";
       base.client_id = qClient;
     }
@@ -66,8 +152,7 @@
 
   function resetBrowserConfig() {
     localStorage.removeItem(STORAGE_KEY);
-    accessToken = "";
-    tokenExpiresAt = 0;
+    signOutGoogle();
   }
 
   function upsertSavedSheet(cfg, entry) {
@@ -219,19 +304,40 @@
     };
   }
 
-  // --- Optional Google OAuth Mode ---
+  // --- Google Sign-In (OAuth) Mode ---
+  async function fetchUserProfile(token) {
+    try {
+      const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const info = await res.json();
+      userEmail = String(info?.email || "");
+      userName = String(info?.name || "");
+    } catch (_) {}
+  }
+
   async function ensureAccessToken(clientId, forcePrompt = false) {
-    const cid = String(clientId || "").trim();
+    const cid = resolveClientId(clientId);
     if (!cid) {
-      throw new Error("Google OAuth Web Client ID is required for OAuth mode.");
+      throw new Error(
+        "Google OAuth Web Client ID is required once for Google Sign-In. Expand 'OAuth App Setup' below or ask your admin for the Team Setup link."
+      );
     }
-    if (!forcePrompt && accessToken && Date.now() < tokenExpiresAt - 30000) {
+    if (!forcePrompt && loadSessionToken(cid)) {
+      if (!userEmail) {
+        await fetchUserProfile(accessToken);
+        saveSessionToken(cid);
+      }
       return accessToken;
     }
     if (!global.google || !global.google.accounts || !global.google.accounts.oauth2) {
       throw new Error("Google Sign-In library failed to load. Check internet connection or ad-blocker and refresh.");
     }
-    return new Promise((resolve, reject) => {
+    if (forcePrompt) {
+      clearSessionToken();
+    }
+    const token = await new Promise((resolve, reject) => {
       tokenClient = global.google.accounts.oauth2.initTokenClient({
         client_id: cid,
         scope: SCOPES,
@@ -245,11 +351,19 @@
           resolve(accessToken);
         },
         error_callback: err => {
-          reject(new Error(`Google Sign-In popup error: ${err?.message || err?.type || "cancelled"}`));
+          const kind = err?.type || err?.message || "cancelled";
+          if (kind === "popup_failed_to_open") {
+            reject(new Error("Google Sign-In popup was blocked by your browser. Please allow popups for this site and try again."));
+            return;
+          }
+          reject(new Error(`Google Sign-In popup cancelled or blocked (${kind}).`));
         },
       });
       tokenClient.requestAccessToken({ prompt: forcePrompt ? "select_account" : "" });
     });
+    await fetchUserProfile(token);
+    saveSessionToken(cid);
+    return token;
   }
 
   async function sheetsFetch(path, options = {}, cfgOverride = null) {
@@ -268,12 +382,14 @@
     if (!res.ok) {
       const apiMsg = data?.error?.message || `Google Sheets API error (${res.status})`;
       if (res.status === 401) {
-        accessToken = "";
-        tokenExpiresAt = 0;
-        throw new Error("Google sign-in session expired. Click Sign In / Switch Google Account in Setup.");
+        clearSessionToken();
+        throw new Error("Google sign-in session expired. Click 'Sign in with Google' to reconnect.");
       }
       if (res.status === 403) {
-        throw new Error("Permission denied (403) accessing this Google Sheet. Make sure the sheet is shared with Editor permission.");
+        const who = userEmail ? ` (currently signed in as ${userEmail})` : "";
+        throw new Error(
+          `Permission denied (403) accessing this Google Sheet${who}. Make sure your Google account has Editor access on this sheet, or click 'Switch Google Account'.`
+        );
       }
       if (res.status === 404) {
         throw new Error("Google Sheet not found (404). Please check the Sheet link or ID in Setup.");
@@ -421,12 +537,16 @@
   }
 
   function buildSetupPayload(cfg, sheetUrl = "") {
+    const cid = resolveClientId(cfg.client_id);
+    const mode = cfg.auth_mode || "oauth";
+    const signedIn = mode === "oauth" ? loadSessionToken(cid) : Boolean(cfg.gas_url);
     return {
       mode: "browser",
-      auth_mode: cfg.auth_mode || "gas",
+      auth_mode: mode,
       gas_url: cfg.gas_url || "",
       gas_pin: cfg.gas_pin || "",
-      client_id: cfg.client_id || "",
+      client_id: cid,
+      has_default_client_id: Boolean(DEFAULT_WEB_CLIENT_ID),
       spreadsheet_id: cfg.spreadsheet_id || "",
       sheet_url: cfg.sheet_url || "",
       url: sheetUrl,
@@ -435,14 +555,17 @@
       data_tab: cfg.data_tab || DEFAULT_TABS.data,
       sync_md_default: false,
       saved_sheets: cfg.saved_sheets || [],
-      has_credentials: cfg.auth_mode === "oauth" ? Boolean(cfg.client_id) : Boolean(cfg.gas_url),
-      has_token: cfg.auth_mode === "oauth" ? Boolean(accessToken && Date.now() < tokenExpiresAt - 30000) : Boolean(cfg.gas_url),
+      has_credentials: mode === "oauth" ? Boolean(cid) : Boolean(cfg.gas_url),
+      has_token: signedIn,
+      user_email: mode === "oauth" && signedIn ? userEmail : "",
+      user_name: mode === "oauth" && signedIn ? userName : "",
     };
   }
 
   function emptyNeedsSetupResponse(cfg) {
     return {
       needs_setup: true,
+      needs_signin: false,
       spreadsheet: {
         id: "",
         title: "No Sheet Configured",
@@ -489,8 +612,14 @@
       return data;
     }
 
+    const cid = resolveClientId(cfg.client_id);
     const sid = String(cfg.spreadsheet_id || "").trim();
-    if (!sid || !cfg.client_id) return emptyNeedsSetupResponse(cfg);
+    if (!sid || !cid) return emptyNeedsSetupResponse(cfg);
+    if (!loadSessionToken(cid)) {
+      const resp = emptyNeedsSetupResponse(cfg);
+      resp.needs_signin = true;
+      return resp;
+    }
 
     const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
     const tTitle = quoteSheet(smap.tasks.title);
@@ -715,7 +844,7 @@
 
   async function probeSetup(payload) {
     const cfg = loadBrowserConfig();
-    const authMode = payload.auth_mode || cfg.auth_mode || "gas";
+    const authMode = payload.auth_mode || cfg.auth_mode || "oauth";
     const tasksTab = String(payload.tasks_tab || DEFAULT_TABS.tasks).trim() || DEFAULT_TABS.tasks;
     const worklogTab = String(payload.worklog_tab || DEFAULT_TABS.worklog).trim() || DEFAULT_TABS.worklog;
     const dataTab = String(payload.data_tab || DEFAULT_TABS.data).trim() || DEFAULT_TABS.data;
@@ -735,8 +864,8 @@
       return { ...info, auth_mode: "gas", gas_url: gasUrl, gas_pin: pin, sheet_url: sheetUrl };
     }
 
-    const clientId = String(payload.client_id || cfg.client_id || "").trim();
     const sid = parseSpreadsheetId(payload.sheet_url || payload.spreadsheet_id || "");
+    const clientId = resolveClientId(payload.client_id || cfg.client_id);
     await ensureAccessToken(clientId, false);
     const probeCfg = { ...cfg, auth_mode: "oauth", client_id: clientId };
     const smap = await getSheetMap(sid, tasksTab, worklogTab, dataTab, probeCfg);
@@ -767,6 +896,8 @@
       data_tab: smap.data ? smap.data.title : "",
       available_tabs: smap.available_tabs,
       url,
+      user_email: userEmail,
+      user_name: userName,
     };
   }
 
@@ -830,11 +961,16 @@
       return { ok: true, saved_sheets: cfg.saved_sheets };
     }
     if (url === "/api/setup/reauth" && method === "POST") {
-      const cid = String(payload.client_id || cfg.client_id || "").trim();
-      await ensureAccessToken(cid, true);
+      const cid = resolveClientId(payload.client_id || cfg.client_id);
+      const forcePrompt = payload.force_prompt !== false;
+      await ensureAccessToken(cid, forcePrompt);
       cfg.auth_mode = "oauth";
       cfg.client_id = cid;
       saveBrowserConfig(cfg);
+      return await fetchBootstrapData(cfg);
+    }
+    if (url === "/api/setup/signout" && method === "POST") {
+      signOutGoogle();
       return await fetchBootstrapData(cfg);
     }
 

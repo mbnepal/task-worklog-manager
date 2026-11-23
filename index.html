@@ -639,6 +639,42 @@
     .toast.success { background: #15803d; }
     .toast.error { background: #b91c1c; }
 
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+    }
+    .mode-tab {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .mode-tab.active {
+      background: var(--surface);
+      color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+    .btn-google {
+      background: #ffffff;
+      border-color: var(--border-strong);
+      color: #0f172a;
+      font-weight: 700;
+    }
+    .btn-google:hover {
+      background: #f8fafc;
+      border-color: var(--primary);
+    }
+
     .hidden { display: none !important; }
     .highlight-req { border-color: #d97706 !important; background: #fffbeb !important; }
   </style>
@@ -661,6 +697,7 @@
         <div id="healthPill" class="health-pill ok" title="Click to filter tasks needing attention" onclick="jumpToAttention()">
           Checking sheet...
         </div>
+        <button class="btn btn-google hidden" id="googleAuthBtn" onclick="handleTopbarAuthClick()" title="Sign in or switch Google account">Sign in with Google</button>
         <button class="btn" id="setupBtn" onclick="openSetupModal()" title="Switch or configure Google Sheet link">⚙ Setup</button>
         <button class="btn" id="refreshBtn" onclick="loadBootstrap(true)">↻ Refresh</button>
         <button class="btn btn-primary" id="primaryNewBtn" onclick="openPrimaryNew()">+ New Record</button>
@@ -688,7 +725,10 @@
   <main class="container">
     <div id="loadErrorBanner" class="check-banner warn hidden" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
       <span id="loadErrorText"></span>
-      <button class="btn btn-sm btn-primary" onclick="openSetupModal()">Open Setup</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-sm btn-primary hidden" id="bannerSignInBtn" onclick="signInAndLoad()">Sign in with Google</button>
+        <button class="btn btn-sm" id="bannerSetupBtn" onclick="openSetupModal()">Open Setup</button>
+      </div>
     </div>
     <!-- TASKS VIEW -->
     <section id="tasksView">
@@ -1021,37 +1061,19 @@
       <form id="setupForm" onsubmit="submitSetupForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
         <div class="modal-body">
           <div class="cell-sub" style="margin-top:-4px;">
-            Connect your Employee Monthly Reporting Google Sheet (<strong>Tasks</strong>, <strong>Work log</strong>, and <strong>Data</strong> tabs).
+            Enter your Employee Monthly Reporting Google Sheet link, click <strong>Test Connection</strong>, and sign in with your Google account.
           </div>
 
-          <div id="sf_gas_wrap" class="hidden" style="display:flex; flex-direction:column; gap:10px;">
-            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; color:#334155; line-height:1.55;">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
-                <strong>Quick Setup (No Google Cloud / OAuth ID needed)</strong>
-                <button type="button" class="btn btn-xs btn-primary" onclick="copyAppsScriptCode()">📋 Copy apps_script.gs</button>
-              </div>
-              1. Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><strong>script.google.com</strong></a> (New project) — works even if <em>Extensions → Apps Script</em> is locked on your sheet!<br />
-              2. Click <strong>Copy apps_script.gs</strong> above, paste into <code>Code.gs</code>, and Save.<br />
-              3. Click <strong>Deploy → New deployment → Web app</strong> (Execute as: <em>Me</em>, Who has access: <em>Anyone</em>).<br />
-              4. Paste the Web App URL (ends with <code>/exec</code>) AND your <strong>Google Sheet Link</strong> below.
-            </div>
-
-            <div class="form-grid">
-              <div class="field">
-                <label>Apps Script Web App URL <span class="req">*</span></label>
-                <input class="input" type="text" id="sf_gas_url" placeholder="https://script.google.com/macros/s/.../exec" />
-              </div>
-              <div class="field">
-                <label>Optional PIN</label>
-                <input class="input" type="password" id="sf_gas_pin" placeholder="Leave blank if none set" />
-              </div>
-            </div>
+          <input type="checkbox" id="sf_use_oauth" class="hidden" checked />
+          <div id="sf_mode_tabs" class="mode-switch">
+            <button type="button" class="mode-tab active" id="sf_tab_oauth" onclick="setBrowserAuthMode('oauth')">Sign in with Google (Multi-User)</button>
+            <button type="button" class="mode-tab" id="sf_tab_gas" onclick="setBrowserAuthMode('gas')">Apps Script Web App</button>
           </div>
 
           <div class="field">
             <label>
-              <span id="sf_sheet_label">Google Sheet Link or ID <span class="req">*</span></span>
-              <span class="cell-sub hidden" id="sf_sheet_opt_hint" style="font-weight:400;">Optional in Apps Script mode (defaults to the bound sheet)</span>
+              <span id="sf_sheet_label">Google Sheet Link or Spreadsheet ID <span class="req">*</span></span>
+              <span class="cell-sub hidden" id="sf_sheet_opt_hint" style="font-weight:400;">Optional in Apps Script mode (defaults to bound sheet)</span>
             </label>
             <input class="input" type="text" id="sf_sheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." />
           </div>
@@ -1071,27 +1093,57 @@
             </div>
           </div>
 
-          <details id="sf_oauth_details" class="hidden" style="border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-size:12px;">
-            <summary style="cursor:pointer; font-weight:600; color:var(--muted);">Alternative: Connect via Google OAuth Web Client ID (no Apps Script)</summary>
-            <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
-              <label class="checkbox-row">
-                <input type="checkbox" id="sf_use_oauth" onchange="toggleBrowserAuthMode()" />
-                Use Google OAuth Web Client ID instead of Apps Script URL
-              </label>
+          <div id="sf_oauth_wrap" style="display:flex; flex-direction:column; gap:10px;">
+            <details id="sf_client_id_details" style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; background:#f8fafc;">
+              <summary id="sf_client_summary" style="cursor:pointer; font-weight:700; color:#334155;">Google OAuth Web Client ID Setup</summary>
+              <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px; color:#334155; line-height:1.5;">
+                <div>
+                  <strong>One-time setup (shared by your whole team):</strong><br />
+                  1. Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener"><strong>Google Cloud Credentials</strong></a> → <strong>Create Credentials → OAuth client ID → Web application</strong>.<br />
+                  2. Under <strong>Authorized JavaScript origins</strong>, add <code id="sf_origin_hint">https://mbnepal.github.io</code> (no trailing slash).<br />
+                  3. Under <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener"><strong>Audience → Test users</strong></a>, add teammate Google emails (or publish the app).
+                </div>
+                <div class="field">
+                  <label>Google OAuth Web Client ID <span class="req">*</span></label>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <input class="input" style="flex:1; min-width:220px;" type="text" id="sf_client_id" placeholder="1234567890-xxxx.apps.googleusercontent.com" />
+                    <button type="button" class="btn btn-sm" onclick="copyTeamShareLink()" title="Copy shareable link with Client ID pre-filled so teammates only paste their Sheet Link">🔗 Copy Team Link</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div id="sf_gas_wrap" class="hidden" style="display:flex; flex-direction:column; gap:10px;">
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; color:#334155; line-height:1.55;">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+                <strong>Apps Script Setup (Fixed Owner Account)</strong>
+                <button type="button" class="btn btn-xs btn-primary" onclick="copyAppsScriptCode()">📋 Copy apps_script.gs</button>
+              </div>
+              1. Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><strong>script.google.com</strong></a> (New project) — paste <code>apps_script.gs</code> into <code>Code.gs</code> and Save.<br />
+              2. Click <strong>Deploy → New deployment → Web app</strong> (Execute as: <em>Me</em>, Who has access: <em>Anyone</em>).<br />
+              3. Paste the Web App URL (<code>/exec</code>) below and your Google Sheet Link above.
+            </div>
+
+            <div class="form-grid">
               <div class="field">
-                <label>Google OAuth Web Client ID</label>
-                <input class="input" type="text" id="sf_client_id" placeholder="1234567890-xxxx.apps.googleusercontent.com" />
-                <span class="cell-sub">Add <code id="sf_origin_hint">https://mbnepal.github.io</code> under Authorized JavaScript origins in Google Cloud Console.</span>
+                <label>Apps Script Web App URL <span class="req">*</span></label>
+                <input class="input" type="text" id="sf_gas_url" placeholder="https://script.google.com/macros/s/.../exec" />
+              </div>
+              <div class="field">
+                <label>Optional PIN</label>
+                <input class="input" type="password" id="sf_gas_pin" placeholder="Leave blank if none set" />
               </div>
             </div>
-          </details>
+          </div>
 
           <div id="setupCredsBanner" class="check-banner ok hidden"></div>
           <div id="setupTestStatus" class="check-banner ok hidden"></div>
 
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-            <button type="button" class="btn" id="testSetupBtn" onclick="testSetupConnection()">Test Connection</button>
-            <button type="button" class="btn hidden" id="reauthBtn" onclick="switchGoogleAccount()" title="Open Google OAuth to sign in or switch Google account">Switch Google Account</button>
+            <button type="button" class="btn btn-primary" id="testSetupBtn" onclick="testSetupConnection()">Test Connection</button>
+            <button type="button" class="btn hidden" id="reauthBtn" onclick="switchGoogleAccount()" title="Sign in or switch Google account">Switch Google Account</button>
+            <button type="button" class="btn hidden" id="signOutBtn" onclick="signOutGoogleAccount()">Sign Out</button>
             <button type="button" class="btn hidden" id="resetSetupBtn" style="color:var(--red);" onclick="resetBrowserSetup()">Reset Setup</button>
           </div>
 
@@ -1232,15 +1284,24 @@
         errBanner.classList.add("hidden");
         applyBootstrap(data);
         if (data.needs_setup) {
-          document.getElementById("loadErrorText").textContent =
-            "No Google Sheet is configured yet. Click Open Setup to paste your Google Sheet link.";
-          errBanner.classList.remove("hidden");
-          openSetupModal();
+          if (data.needs_signin) {
+            document.getElementById("loadErrorText").textContent =
+              "Your Google Sheet link is saved. Click 'Sign in with Google' to load your records.";
+            document.getElementById("bannerSignInBtn").classList.remove("hidden");
+            errBanner.classList.remove("hidden");
+          } else {
+            document.getElementById("loadErrorText").textContent =
+              "No Google Sheet is configured yet. Paste your Google Sheet link in Setup.";
+            document.getElementById("bannerSignInBtn").classList.add("hidden");
+            errBanner.classList.remove("hidden");
+            openSetupModal();
+          }
         } else if (showMsg) {
           showToast("Synced latest records from Google Sheets.", "success");
         }
       } catch (err) {
         document.getElementById("loadErrorText").textContent = err.message;
+        document.getElementById("bannerSignInBtn").classList.toggle("hidden", !(state.appMode === "browser" && state.setup.auth_mode === "oauth"));
         errBanner.classList.remove("hidden");
         showToast(err.message, "error");
       } finally {
@@ -1268,9 +1329,27 @@
         sheetSep.classList.add("hidden");
       }
 
+      const authBtn = document.getElementById("googleAuthBtn");
+      if (state.appMode === "browser" && state.setup.auth_mode === "oauth") {
+        authBtn.classList.remove("hidden");
+        if (state.setup.has_token) {
+          authBtn.textContent = `👤 ${state.setup.user_email || state.setup.user_name || "Signed in"}`;
+          authBtn.title = "Signed in with Google — click to switch Google account";
+        } else {
+          authBtn.textContent = "Sign in with Google";
+          authBtn.title = "Sign in with your Google account";
+        }
+      } else {
+        authBtn.classList.add("hidden");
+      }
+
       if (data.needs_setup) {
-        document.getElementById("employeeBadge").textContent = "No Google Sheet configured";
-        document.getElementById("activeSheetTitleBadge").textContent = "Setup Required";
+        document.getElementById("employeeBadge").textContent = data.needs_signin
+          ? "Google Sign-In required"
+          : "No Google Sheet configured";
+        document.getElementById("activeSheetTitleBadge").textContent = data.needs_signin
+          ? "Sign In Pending"
+          : "Setup Required";
         document.getElementById("activeSheetTitleBadge").className = "badge badge-amber";
       } else {
         document.getElementById("employeeBadge").textContent =
@@ -1283,7 +1362,7 @@
       const pill = document.getElementById("healthPill");
       if (data.needs_setup) {
         pill.className = "health-pill warn";
-        pill.textContent = "Not Connected";
+        pill.textContent = data.needs_signin ? "Sign in Required" : "Not Connected";
       } else {
         const empOk = !!state.employee.check_employee_all;
         const supOk = !!state.employee.check_supervisor_all;
@@ -1977,29 +2056,69 @@
     function syncModeUi() {
       const isBrowser = state.appMode === "browser";
       const useOauth = isBrowser && document.getElementById("sf_use_oauth").checked;
+      const hasClient = Boolean((document.getElementById("sf_client_id").value || "").trim());
+
+      document.getElementById("sf_mode_tabs").classList.toggle("hidden", !isBrowser);
+      document.getElementById("sf_tab_oauth").classList.toggle("active", useOauth);
+      document.getElementById("sf_tab_gas").classList.toggle("active", isBrowser && !useOauth);
+      document.getElementById("sf_oauth_wrap").classList.toggle("hidden", !useOauth);
       document.getElementById("sf_gas_wrap").classList.toggle("hidden", !isBrowser || useOauth);
-      document.getElementById("sf_oauth_details").classList.toggle("hidden", !isBrowser);
       document.getElementById("sf_sheet_opt_hint").classList.toggle("hidden", !isBrowser || useOauth);
       document.getElementById("sf_sheet_label").innerHTML =
         isBrowser && !useOauth
           ? "Google Sheet Link or ID (Optional)"
           : 'Google Sheet Link or Spreadsheet ID <span class="req">*</span>';
+
       document.getElementById("reauthBtn").classList.toggle("hidden", isBrowser && !useOauth);
+      document.getElementById("reauthBtn").textContent =
+        isBrowser && useOauth && !state.setup.has_token
+          ? "Sign in with Google"
+          : "Switch Google Account";
+      document.getElementById("signOutBtn").classList.toggle("hidden", !(isBrowser && useOauth && state.setup.has_token));
       document.getElementById("resetSetupBtn").classList.toggle("hidden", !isBrowser);
       document.getElementById("wf_sync_md_wrap").classList.toggle("hidden", isBrowser);
       document.getElementById("sf_origin_hint").textContent = window.location.origin;
+
+      const cidDetails = document.getElementById("sf_client_id_details");
+      const cidSummary = document.getElementById("sf_client_summary");
+      if (hasClient) {
+        cidSummary.textContent = "Google OAuth App Configured ✓ (click to edit or copy Team Link)";
+      } else {
+        cidSummary.textContent = "One-Time Setup Required: Enter Google OAuth Web Client ID";
+        cidDetails.open = true;
+      }
+
       document.getElementById("setupStorageHint").innerHTML = isBrowser
-        ? "Saved in your browser (<code>localStorage</code>) — zero secrets stored on server"
+        ? "Settings saved in your browser — Google login stays isolated per user"
         : "Stored locally in <code>config/task_worklog_config.json</code>";
+    }
+
+    function setBrowserAuthMode(mode) {
+      document.getElementById("sf_use_oauth").checked = mode === "oauth";
+      syncModeUi();
+      document.getElementById("setupCredsBanner").classList.add("hidden");
+      document.getElementById("setupTestStatus").classList.add("hidden");
     }
 
     function toggleBrowserAuthMode() {
       syncModeUi();
-      const useOauth = document.getElementById("sf_use_oauth").checked;
       document.getElementById("setupCredsBanner").classList.add("hidden");
       document.getElementById("setupTestStatus").classList.add("hidden");
-      if (useOauth) {
-        document.getElementById("reauthBtn").textContent = "Sign In / Switch Google Account";
+    }
+
+    async function copyTeamShareLink() {
+      const cid = (document.getElementById("sf_client_id").value || "").trim();
+      if (!cid) {
+        showToast("Enter your Google OAuth Web Client ID first.", "error");
+        document.getElementById("sf_client_id").focus();
+        return;
+      }
+      const shareUrl = `${window.location.origin}${window.location.pathname}?client_id=${encodeURIComponent(cid)}`;
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        showToast("Copied Team Link! Teammates only paste their Sheet Link & click Test Connection.", "success");
+      } catch (_) {
+        showToast(shareUrl, "info");
       }
     }
 
@@ -2020,13 +2139,13 @@
       statusBox.classList.add("hidden");
       try {
         const cfg = await apiFetch("/api/setup");
-        state.setup.saved_sheets = cfg.saved_sheets || [];
-        const useOauth = state.appMode === "browser" && cfg.auth_mode === "oauth";
+        state.setup = Object.assign({}, state.setup, cfg);
+        const useOauth = state.appMode === "browser" && cfg.auth_mode !== "gas";
         document.getElementById("sf_use_oauth").checked = useOauth;
-        document.getElementById("sf_oauth_details").open = useOauth;
         document.getElementById("sf_gas_url").value = cfg.gas_url || "";
         document.getElementById("sf_gas_pin").value = cfg.gas_pin || "";
         document.getElementById("sf_client_id").value = cfg.client_id || "";
+        document.getElementById("sf_client_id_details").open = useOauth && !cfg.client_id;
         document.getElementById("sf_sheet_url").value =
           cfg.sheet_url || cfg.url || (cfg.spreadsheet_id && (state.appMode === "local" || useOauth) ? `https://docs.google.com/spreadsheets/d/${cfg.spreadsheet_id}/edit` : "");
         document.getElementById("sf_tasks_tab").value = cfg.tasks_tab || "Tasks";
@@ -2037,18 +2156,19 @@
         const credsBanner = document.getElementById("setupCredsBanner");
         if (state.appMode === "browser") {
           if (!useOauth) {
-            if (!cfg.gas_url) {
-              credsBanner.className = "check-banner warn";
-              credsBanner.textContent = "Paste your deployed Apps Script Web App URL above to connect (same setup as Sujan Store Inventory Manager).";
-            } else {
-              credsBanner.className = "check-banner ok";
-              credsBanner.textContent = "Apps Script Web App URL configured ✓";
-            }
+            credsBanner.className = cfg.gas_url ? "check-banner ok" : "check-banner warn";
+            credsBanner.textContent = cfg.gas_url
+              ? "Apps Script Web App URL configured ✓"
+              : "Paste your deployed Apps Script Web App URL below to connect.";
+          } else if (!cfg.client_id) {
+            credsBanner.className = "check-banner warn";
+            credsBanner.textContent = `Enter your one-time Google OAuth Web Client ID above (origin: ${window.location.origin}), then paste your Sheet Link.`;
+          } else if (cfg.has_token) {
+            credsBanner.className = "check-banner ok";
+            credsBanner.textContent = `Signed in as ${cfg.user_email || cfg.user_name || "Google account"} ✓ — click Test Connection or Save & Load Sheet.`;
           } else {
-            credsBanner.className = cfg.client_id ? "check-banner ok" : "check-banner warn";
-            credsBanner.textContent = cfg.client_id
-              ? (cfg.has_token ? "Web Client ID set ✓ • Google session active ✓" : "Web Client ID set ✓ • Click Test Connection to sign in")
-              : `Paste your Google OAuth Web Client ID above (origin: ${window.location.origin}).`;
+            credsBanner.className = "check-banner ok";
+            credsBanner.textContent = "Google OAuth ready ✓ — paste your Sheet Link and click Test Connection to sign in with Google.";
           }
           credsBanner.classList.remove("hidden");
         } else if (!cfg.has_credentials) {
@@ -2069,8 +2189,8 @@
         showToast(err.message, "error");
       }
       openModal("setupModalBackdrop");
-      const focusId = state.appMode === "browser" && !document.getElementById("sf_use_oauth").checked
-        ? "sf_gas_url"
+      const focusId = state.appMode === "browser" && document.getElementById("sf_use_oauth").checked && !(document.getElementById("sf_client_id").value || "").trim()
+        ? "sf_client_id"
         : "sf_sheet_url";
       setTimeout(() => document.getElementById(focusId).focus(), 40);
     }
@@ -2081,10 +2201,12 @@
         applyBootstrap(data);
         document.getElementById("sf_gas_url").value = "";
         document.getElementById("sf_gas_pin").value = "";
+        document.getElementById("sf_client_id").value = data.setup?.client_id || "";
         document.getElementById("sf_sheet_url").value = "";
         document.getElementById("setupTestStatus").classList.add("hidden");
+        syncModeUi();
         renderSavedSheets("");
-        showToast("Setup cleared.", "info");
+        showToast("Setup and Google session cleared.", "info");
       } catch (err) {
         showToast(err.message, "error");
       }
@@ -2147,14 +2269,30 @@
           method: "POST",
           body: JSON.stringify(_getSetupFormPayload()),
         });
+        const acct = res.user_email ? `Signed in as ${res.user_email} • ` : "";
         statusBox.className = "check-banner ok";
         statusBox.textContent =
-          `Connected to "${res.title}" ✓ • Employee: ${res.employee_name || "—"} (ID ${res.employee_id || "—"}) • Tabs matched: ${res.tasks_tab}, ${res.worklog_tab}${res.data_tab ? ", " + res.data_tab : ""}`;
+          `${acct}Connected to "${res.title}" ✓ • Employee: ${res.employee_name || "—"} (ID ${res.employee_id || "—"}) • Tabs: ${res.tasks_tab}, ${res.worklog_tab}${res.data_tab ? ", " + res.data_tab : ""}. Click "Save & Load Sheet" to open!`;
         statusBox.classList.remove("hidden");
+        if (res.user_email) {
+          state.setup.has_token = true;
+          state.setup.user_email = res.user_email;
+          state.setup.user_name = res.user_name || "";
+          const credsBanner = document.getElementById("setupCredsBanner");
+          credsBanner.className = "check-banner ok";
+          credsBanner.textContent = `Signed in as ${res.user_email} ✓`;
+          credsBanner.classList.remove("hidden");
+          syncModeUi();
+        }
+        document.getElementById("saveSetupBtn").focus();
       } catch (err) {
         statusBox.className = "check-banner warn";
         statusBox.textContent = err.message;
         statusBox.classList.remove("hidden");
+        if (err.message && err.message.includes("Web Client ID")) {
+          document.getElementById("sf_client_id_details").open = true;
+          document.getElementById("sf_client_id").focus();
+        }
       } finally {
         btn.disabled = false;
         btn.textContent = "Test Connection";
@@ -2176,11 +2314,14 @@
         document.getElementById("loadErrorBanner").classList.add("hidden");
         applyBootstrap(data);
         closeModal("setupModalBackdrop");
-        showToast(`Switched to "${data.spreadsheet?.title || "Google Sheet"}"!`, "success");
+        showToast(`Connected to "${data.spreadsheet?.title || "Google Sheet"}"!`, "success");
       } catch (err) {
         statusBox.className = "check-banner warn";
         statusBox.textContent = err.message;
         statusBox.classList.remove("hidden");
+        if (err.message && err.message.includes("Web Client ID")) {
+          document.getElementById("sf_client_id_details").open = true;
+        }
         showToast(err.message, "error");
       } finally {
         btn.disabled = false;
@@ -2192,12 +2333,11 @@
       const item = (state.setup.saved_sheets || []).find(s => (s.spreadsheet_id || s.gas_url) === key);
       if (!item) return;
       if (state.appMode === "browser") {
-        const useOauth = item.auth_mode === "oauth";
+        const useOauth = item.auth_mode !== "gas";
         document.getElementById("sf_use_oauth").checked = useOauth;
-        document.getElementById("sf_oauth_details").open = useOauth;
         document.getElementById("sf_gas_url").value = item.gas_url || "";
         document.getElementById("sf_gas_pin").value = item.gas_pin || "";
-        document.getElementById("sf_client_id").value = item.client_id || "";
+        document.getElementById("sf_client_id").value = item.client_id || state.setup.client_id || "";
         syncModeUi();
       }
       document.getElementById("sf_sheet_url").value = item.sheet_url || item.url || item.spreadsheet_id || "";
@@ -2221,24 +2361,88 @@
       }
     }
 
+    async function handleTopbarAuthClick() {
+      await signInAndLoad(Boolean(state.setup.has_token));
+    }
+
+    async function signInAndLoad(forcePrompt = false) {
+      const authBtn = document.getElementById("googleAuthBtn");
+      const bannerBtn = document.getElementById("bannerSignInBtn");
+      authBtn.disabled = true;
+      bannerBtn.disabled = true;
+      try {
+        const data = await apiFetch("/api/setup/reauth", {
+          method: "POST",
+          body: JSON.stringify({
+            client_id: state.setup.client_id || "",
+            force_prompt: forcePrompt,
+          }),
+        });
+        document.getElementById("loadErrorBanner").classList.add("hidden");
+        applyBootstrap(data);
+        if (data.needs_setup) {
+          openSetupModal();
+        } else {
+          showToast(`Signed in as ${data.setup?.user_email || "Google account"} ✓`, "success");
+        }
+      } catch (err) {
+        document.getElementById("loadErrorText").textContent = err.message;
+        document.getElementById("loadErrorBanner").classList.remove("hidden");
+        showToast(err.message, "error");
+      } finally {
+        authBtn.disabled = false;
+        bannerBtn.disabled = false;
+      }
+    }
+
     async function switchGoogleAccount() {
       const btn = document.getElementById("reauthBtn");
       btn.disabled = true;
       btn.textContent = "Opening Google Login...";
       try {
+        const sheetInput = (document.getElementById("sf_sheet_url").value || "").trim();
+        const cidInput = (document.getElementById("sf_client_id").value || "").trim();
         const data = await apiFetch("/api/setup/reauth", {
           method: "POST",
-          body: JSON.stringify({ client_id: document.getElementById("sf_client_id").value }),
+          body: JSON.stringify({ client_id: cidInput, force_prompt: true }),
         });
-        document.getElementById("loadErrorBanner").classList.add("hidden");
-        applyBootstrap(data);
+        state.setup = Object.assign({}, state.setup, data.setup || {});
+        if (!data.needs_setup) {
+          document.getElementById("loadErrorBanner").classList.add("hidden");
+          applyBootstrap(data);
+        } else if (sheetInput) {
+          await testSetupConnection();
+        } else {
+          applyBootstrap(data);
+        }
+        const credsBanner = document.getElementById("setupCredsBanner");
+        credsBanner.className = "check-banner ok";
+        credsBanner.textContent = `Signed in as ${state.setup.user_email || "Google account"} ✓`;
+        credsBanner.classList.remove("hidden");
+        syncModeUi();
         renderSavedSheets(state.spreadsheet.id);
-        showToast("Google account updated!", "success");
+        showToast(`Signed in as ${state.setup.user_email || "Google account"}!`, "success");
       } catch (err) {
         showToast(err.message, "error");
       } finally {
         btn.disabled = false;
-        btn.textContent = "Sign In / Switch Google Account";
+        syncModeUi();
+      }
+    }
+
+    async function signOutGoogleAccount() {
+      try {
+        const data = await apiFetch("/api/setup/signout", { method: "POST", body: "{}" });
+        applyBootstrap(data);
+        const credsBanner = document.getElementById("setupCredsBanner");
+        credsBanner.className = "check-banner warn";
+        credsBanner.textContent = "Signed out of Google. Click Test Connection or Sign in with Google to reconnect.";
+        credsBanner.classList.remove("hidden");
+        document.getElementById("setupTestStatus").classList.add("hidden");
+        syncModeUi();
+        showToast("Signed out of Google account.", "info");
+      } catch (err) {
+        showToast(err.message, "error");
       }
     }
 
