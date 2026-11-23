@@ -180,11 +180,18 @@
   // --- Apps Script Mode ---
   async function gasPost(gasUrl, bodyObj) {
     const url = validateGasUrl(gasUrl);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(bodyObj),
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(bodyObj),
+      });
+    } catch (_) {
+      throw new Error(
+        "Could not connect to Apps Script or access that Google Sheet (blocked/permission denied). Ensure the Apps Script deployer's Google account has Editor access to this Google Sheet and the Web App is deployed with 'Who has access: Anyone'."
+      );
+    }
     const text = await res.text();
     let data;
     try {
