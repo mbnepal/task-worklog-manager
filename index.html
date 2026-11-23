@@ -1051,6 +1051,66 @@
     </div>
   </div>
 
+  <!-- COMPLETE MODAL -->
+  <div class="modal-backdrop" id="completeModalBackdrop">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 id="completeModalTitle">Complete Record</h2>
+        <button class="modal-close" onclick="closeModal('completeModalBackdrop')">&times;</button>
+      </div>
+      <form id="completeForm" onsubmit="submitCompleteForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
+        <div class="modal-body">
+          <div id="completeSummaryBox" style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:13px;"></div>
+
+          <div class="field hidden" id="cf_act_start_wrap">
+            <label>Actual Start Date <span class="req">*</span></label>
+            <input class="input" type="date" id="cf_act_start_date" />
+          </div>
+
+          <div class="field">
+            <label>
+              <span id="cf_date_label">Completion Date <span class="req">*</span></span>
+              <span id="cf_orig_date_note" class="cell-sub hidden"></span>
+            </label>
+            <input class="input" type="date" id="cf_date" required />
+            <div class="quick-chips">
+              <button type="button" class="chip-btn" onclick="setCompleteToday()">Today</button>
+              <button type="button" class="chip-btn hidden" id="cf_orig_date_chip" onclick="setCompleteOrigDate()"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label id="cf_time_label">Time Spent (minutes) <span class="req">*</span></label>
+            <input class="input" type="number" id="cf_time" min="0" step="any" required />
+            <div class="quick-chips" id="cf_time_chips"></div>
+          </div>
+
+          <div class="field hidden" id="cf_delay_wrap">
+            <label>
+              <span>Delay Reason (Past Deadline) <span class="req">*</span></span>
+              <span class="badge badge-amber">Required</span>
+            </label>
+            <textarea class="input" id="cf_delay_reason" rows="2" placeholder="Explain why completion is past Expected Deadline..."></textarea>
+          </div>
+
+          <div class="field hidden" id="cf_comments_wrap">
+            <label>Comments (Optional)</label>
+            <textarea class="input" id="cf_comments" rows="2" placeholder="Completion notes..."></textarea>
+          </div>
+
+          <div id="completeWarnBanner" class="check-banner warn hidden"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm" onclick="openCompleteFullEdit()">Full Edit...</button>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn" onclick="closeModal('completeModalBackdrop')">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="confirmCompleteBtn">Complete &amp; Save</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- SETUP MODAL -->
   <div class="modal-backdrop" id="setupModalBackdrop">
     <div class="modal">
@@ -1178,6 +1238,7 @@
       editingTaskSnapshot: null,
       editingWlRow: null,
       editingWlSnapshot: null,
+      pendingComplete: null,
       pendingDelete: null,
     };
 
@@ -1585,7 +1646,7 @@
               <td>
                 <div class="actions-col">
                   <button class="btn btn-xs" onclick="openTaskModal(${t.row})">Edit</button>
-                  ${!isDone ? `<button class="btn btn-xs btn-success" onclick="openTaskModal(${t.row}, true)" title="Complete this task">Complete</button>` : ""}
+                  ${!isDone ? `<button class="btn btn-xs btn-success" onclick="openCompleteTaskModal(${t.row})" title="Complete &amp; edit date/time">Complete</button>` : ""}
                   <button class="btn btn-xs" onclick="duplicateTask(${t.row})" title="Duplicate as new task">Copy</button>
                   <button class="btn btn-xs btn-danger" onclick="promptDeleteTask(${t.row})">Delete</button>
                 </div>
@@ -1685,7 +1746,7 @@
               <td>
                 <div class="actions-col">
                   <button class="btn btn-xs" onclick="openWorklogModal(${w.row})">Edit</button>
-                  <button class="btn btn-xs" onclick="quickToggleWorklogStatus(${w.row}, '${nextStatus}')" title="Switch to ${nextStatus}">${isDone ? "Reopen" : "Complete"}</button>
+                  <button class="btn btn-xs ${isDone ? "" : "btn-success"}" onclick="${isDone ? `quickToggleWorklogStatus(${w.row}, 'On-going')` : `openCompleteWorklogModal(${w.row})`}" title="${isDone ? "Switch to On-going" : "Complete &amp; edit date/time"}">${isDone ? "Reopen" : "Complete"}</button>
                   <button class="btn btn-xs" onclick="duplicateWorklog(${w.row})" title="Duplicate entry">Copy</button>
                   <button class="btn btn-xs btn-danger" onclick="promptDeleteWorklog(${w.row})">Delete</button>
                 </div>
@@ -1989,6 +2050,249 @@
         showToast(`Row ${row} marked ${newStatus}.`, "success");
       } catch (err) {
         showToast(err.message, "error");
+      }
+    }
+
+    // --- COMPLETE MODAL FLOW ---
+    function setCompleteTimeVal(val) {
+      document.getElementById("cf_time").value = val;
+    }
+
+    function setCompleteToday() {
+      document.getElementById("cf_date").value = todayISO();
+      updateCompleteTaskState();
+    }
+
+    function setCompleteOrigDate() {
+      if (state.pendingComplete && state.pendingComplete.origDateISO) {
+        document.getElementById("cf_date").value = state.pendingComplete.origDateISO;
+        updateCompleteTaskState();
+      }
+    }
+
+    function updateCompleteTaskState() {
+      const p = state.pendingComplete;
+      if (!p || p.type !== "task") return;
+      const t = p.record;
+      const compDate = document.getElementById("cf_date").value;
+      const deadlineIso = parseSheetDateToISO(t.expected_deadline);
+      const isDelayed = Boolean(deadlineIso && compDate && compDate > deadlineIso);
+      document.getElementById("cf_delay_wrap").classList.toggle("hidden", !isDelayed);
+      document.getElementById("cf_delay_reason").required = isDelayed;
+    }
+
+    function openCompleteWorklogModal(row) {
+      const w = state.worklogs.find(x => x.row === row);
+      if (!w) return;
+      const today = todayISO();
+      const origIso = parseSheetDateToISO(w.date);
+      state.pendingComplete = {
+        type: "worklog",
+        row: w.row,
+        record: w,
+        origDateISO: origIso,
+      };
+      document.getElementById("completeModalTitle").textContent = `Complete Work Log #${w.sn || "-"} (Row ${w.row})`;
+      document.getElementById("completeSummaryBox").innerHTML = `
+        <div><strong>${escapeHtml(w.project)}</strong></div>
+        <div class="cell-sub" style="margin-top:4px;">${escapeHtml(w.task)}</div>
+      `;
+      document.getElementById("cf_act_start_wrap").classList.add("hidden");
+      document.getElementById("cf_act_start_date").required = false;
+      document.getElementById("cf_delay_wrap").classList.add("hidden");
+      document.getElementById("cf_delay_reason").required = false;
+      document.getElementById("cf_comments_wrap").classList.remove("hidden");
+      document.getElementById("completeWarnBanner").classList.add("hidden");
+
+      document.getElementById("cf_date_label").innerHTML = 'Date <span class="req">*</span>';
+      document.getElementById("cf_date").value = today;
+      const origChip = document.getElementById("cf_orig_date_chip");
+      if (origIso && origIso !== today) {
+        origChip.textContent = `Original (${w.date})`;
+        origChip.classList.remove("hidden");
+        document.getElementById("cf_orig_date_note").textContent = `Logged: ${w.date}`;
+        document.getElementById("cf_orig_date_note").classList.remove("hidden");
+      } else {
+        origChip.classList.add("hidden");
+        document.getElementById("cf_orig_date_note").classList.add("hidden");
+      }
+
+      document.getElementById("cf_time_label").innerHTML = 'Time Spent (minutes) <span class="req">*</span>';
+      const timeInput = document.getElementById("cf_time");
+      timeInput.min = "0";
+      timeInput.step = "any";
+      timeInput.value = w.time_minutes || "30";
+
+      const mins = [15, 30, 45, 60, 90, 120, 180, 240];
+      document.getElementById("cf_time_chips").innerHTML = mins
+        .map(m => `<button type="button" class="chip-btn" onclick="setCompleteTimeVal(${m})">${m >= 60 ? (m / 60) + "h" : m + "m"}</button>`)
+        .join("");
+
+      document.getElementById("cf_comments").value = w.comments || "";
+      openModal("completeModalBackdrop");
+      setTimeout(() => {
+        timeInput.focus();
+        timeInput.select();
+      }, 40);
+    }
+
+    function openCompleteTaskModal(row) {
+      const t = state.tasks.find(x => x.row === row);
+      if (!t) return;
+      const today = todayISO();
+      const estStartIso = parseSheetDateToISO(t.est_start_date);
+      const actStartIso = parseSheetDateToISO(t.act_start_date) || estStartIso || today;
+      const compIso = parseSheetDateToISO(t.completion_date) || today;
+      state.pendingComplete = {
+        type: "task",
+        row: t.row,
+        record: t,
+        origDateISO: compIso,
+      };
+      document.getElementById("completeModalTitle").textContent = `Complete Task #${t.sn || "-"} (Row ${t.row})`;
+      document.getElementById("completeSummaryBox").innerHTML = `
+        <div><strong>${escapeHtml(t.detail)}</strong></div>
+        <div class="cell-sub" style="margin-top:4px;">Est. Start: ${escapeHtml(t.est_start_date || "—")} • Deadline: ${escapeHtml(t.expected_deadline || "—")} • Est: ${escapeHtml(t.est_time || "0")}h</div>
+      `;
+      document.getElementById("cf_act_start_wrap").classList.remove("hidden");
+      document.getElementById("cf_act_start_date").required = true;
+      document.getElementById("cf_act_start_date").value = actStartIso;
+      document.getElementById("cf_comments_wrap").classList.add("hidden");
+      document.getElementById("cf_orig_date_chip").classList.add("hidden");
+      document.getElementById("cf_orig_date_note").classList.add("hidden");
+
+      document.getElementById("cf_date_label").innerHTML = 'Completion Date <span class="req">*</span>';
+      document.getElementById("cf_date").value = compIso;
+
+      document.getElementById("cf_time_label").innerHTML = 'Actual Time (hours) <span class="req">*</span>';
+      const timeInput = document.getElementById("cf_time");
+      timeInput.min = "0.01";
+      timeInput.step = "any";
+      timeInput.value = t.act_time || t.est_time || "";
+
+      const chips = [];
+      if (t.est_time !== "" && Number(t.est_time) > 0) {
+        chips.push(`<button type="button" class="chip-btn" onclick="setCompleteTimeVal(${Number(t.est_time)})">Est (${escapeHtml(t.est_time)}h)</button>`);
+      }
+      [0.5, 1, 2, 4, 8].forEach(h => {
+        chips.push(`<button type="button" class="chip-btn" onclick="setCompleteTimeVal(${h})">${h}h</button>`);
+      });
+      document.getElementById("cf_time_chips").innerHTML = chips.join("");
+
+      document.getElementById("cf_delay_reason").value = t.delay_reason || "";
+      updateCompleteTaskState();
+
+      const missing = [];
+      if (!t.priority) missing.push("Priority");
+      if (!t.difficulty) missing.push("Difficulty");
+      if (!t.expected_outcome) missing.push("Expected Outcome");
+      if (!t.est_start_date) missing.push("Est. Start Date");
+      if (!t.expected_deadline) missing.push("Expected Deadline");
+      if (t.est_time === "" || t.est_time === null || t.est_time === undefined) missing.push("Estimated Time");
+      const warn = document.getElementById("completeWarnBanner");
+      if (missing.length) {
+        warn.textContent = `Missing required fields (${missing.join(", ")}). Use "Full Edit..." to complete them.`;
+        warn.classList.remove("hidden");
+      } else {
+        warn.classList.add("hidden");
+      }
+
+      openModal("completeModalBackdrop");
+      setTimeout(() => {
+        timeInput.focus();
+        timeInput.select();
+      }, 40);
+    }
+
+    function openCompleteFullEdit() {
+      const p = state.pendingComplete;
+      if (!p) return;
+      const editedDate = document.getElementById("cf_date").value;
+      const editedTime = document.getElementById("cf_time").value;
+      const editedActStart = document.getElementById("cf_act_start_date").value;
+      const editedDelay = document.getElementById("cf_delay_reason").value;
+      const editedComments = document.getElementById("cf_comments").value;
+      closeModal("completeModalBackdrop");
+      if (p.type === "worklog") {
+        openWorklogModal(p.row);
+        if (editedDate) document.getElementById("wf_date").value = editedDate;
+        if (editedTime !== "") document.getElementById("wf_time_minutes").value = editedTime;
+        document.getElementById("wf_status").value = "Complete";
+        document.getElementById("wf_comments").value = editedComments;
+      } else {
+        openTaskModal(p.row, true);
+        if (editedActStart) document.getElementById("tf_act_start_date").value = editedActStart;
+        if (editedDate) document.getElementById("tf_completion_date").value = editedDate;
+        if (editedTime !== "") document.getElementById("tf_act_time").value = editedTime;
+        if (editedDelay) document.getElementById("tf_delay_reason").value = editedDelay;
+        updateTaskCheckPreview();
+      }
+    }
+
+    async function submitCompleteForm(e) {
+      e.preventDefault();
+      const p = state.pendingComplete;
+      if (!p) return;
+      const btn = document.getElementById("confirmCompleteBtn");
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      try {
+        let data;
+        if (p.type === "worklog") {
+          const w = p.record;
+          data = await apiFetch(`/api/worklogs/${p.row}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              date: document.getElementById("cf_date").value,
+              status: "Complete",
+              project: w.project,
+              task: w.task,
+              time_minutes: document.getElementById("cf_time").value,
+              comments: document.getElementById("cf_comments").value,
+              sync_md: !!state.setup.sync_md_default,
+              expected_snapshot: { task: w.task, project: w.project, date: w.date },
+            }),
+          });
+          showToast(`Work log row ${p.row} completed & saved!`, "success");
+        } else {
+          const t = p.record;
+          data = await apiFetch(`/api/tasks/${p.row}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              date_of_entry: t.date_of_entry,
+              detail: t.detail,
+              other_person: t.other_person,
+              other_department: t.other_department,
+              priority: t.priority,
+              difficulty: t.difficulty,
+              est_start_date: t.est_start_date,
+              act_start_date: document.getElementById("cf_act_start_date").value,
+              expected_deadline: t.expected_deadline,
+              completion_date: document.getElementById("cf_date").value,
+              est_time: t.est_time,
+              act_time: document.getElementById("cf_time").value,
+              pct_completed: 100,
+              delay_reason: document.getElementById("cf_delay_reason").value,
+              expected_outcome: t.expected_outcome,
+              remarks: t.remarks,
+              supervisor_comments: t.supervisor_comments,
+              clarification: t.clarification,
+              allow_partial: false,
+              expected_snapshot: { detail: t.detail, date_of_entry: t.date_of_entry },
+            }),
+          });
+          showToast(`Task row ${p.row} completed & saved!`, "success");
+        }
+        applyBootstrap(data);
+        closeModal("completeModalBackdrop");
+      } catch (err) {
+        const warn = document.getElementById("completeWarnBanner");
+        warn.textContent = err.message;
+        warn.classList.remove("hidden");
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Complete & Save";
       }
     }
 
@@ -2502,8 +2806,11 @@
       el.addEventListener("change", updateTaskCheckPreview);
     });
 
+    document.getElementById("cf_date").addEventListener("input", updateCompleteTaskState);
+    document.getElementById("cf_date").addEventListener("change", updateCompleteTaskState);
+
     // Backdrop click to close & keyboard shortcuts
-    ["taskModalBackdrop", "wlModalBackdrop", "deleteModalBackdrop", "setupModalBackdrop"].forEach(id => {
+    ["taskModalBackdrop", "wlModalBackdrop", "completeModalBackdrop", "deleteModalBackdrop", "setupModalBackdrop"].forEach(id => {
       document.getElementById(id).addEventListener("click", e => {
         if (e.target.id === id) closeModal(id);
       });
@@ -2512,13 +2819,15 @@
     document.addEventListener("keydown", e => {
       const taskOpen = document.getElementById("taskModalBackdrop").classList.contains("open");
       const wlOpen = document.getElementById("wlModalBackdrop").classList.contains("open");
+      const compOpen = document.getElementById("completeModalBackdrop").classList.contains("open");
       const delOpen = document.getElementById("deleteModalBackdrop").classList.contains("open");
       const setupOpen = document.getElementById("setupModalBackdrop").classList.contains("open");
-      const anyOpen = taskOpen || wlOpen || delOpen || setupOpen;
+      const anyOpen = taskOpen || wlOpen || compOpen || delOpen || setupOpen;
 
       if (e.key === "Escape" && anyOpen) {
         closeModal("taskModalBackdrop");
         closeModal("wlModalBackdrop");
+        closeModal("completeModalBackdrop");
         closeModal("deleteModalBackdrop");
         closeModal("setupModalBackdrop");
         return;
@@ -2526,6 +2835,7 @@
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         if (taskOpen) document.getElementById("taskForm").requestSubmit();
         else if (wlOpen) document.getElementById("wlForm").requestSubmit();
+        else if (compOpen) document.getElementById("completeForm").requestSubmit();
         else if (setupOpen) document.getElementById("setupForm").requestSubmit();
         return;
       }
