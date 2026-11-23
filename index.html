@@ -2809,12 +2809,7 @@
     document.getElementById("cf_date").addEventListener("input", updateCompleteTaskState);
     document.getElementById("cf_date").addEventListener("change", updateCompleteTaskState);
 
-    // Backdrop click to close & keyboard shortcuts
-    ["taskModalBackdrop", "wlModalBackdrop", "completeModalBackdrop", "deleteModalBackdrop", "setupModalBackdrop"].forEach(id => {
-      document.getElementById(id).addEventListener("click", e => {
-        if (e.target.id === id) closeModal(id);
-      });
-    });
+    // Keyboard shortcuts (do not close modals on outside backdrop clicks)
 
     document.addEventListener("keydown", e => {
       const taskOpen = document.getElementById("taskModalBackdrop").classList.contains("open");
