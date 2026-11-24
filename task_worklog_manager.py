@@ -42,9 +42,15 @@ DEFAULT_PORT = int(os.environ.get("TASK_MANAGER_PORT", "8766"))
 DEFAULT_TASKS_TAB = "Tasks"
 DEFAULT_WORKLOG_TAB = "Work log"
 DEFAULT_DATA_TAB = "Data"
+DEFAULT_PERF_TAB = "Perf Standard"
 TASKS_GID = 697912632
 WORKLOG_GID = 1436624543
 DATA_GID = 1258735725
+PERF_GID = 1601402663
+MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 TOKEN_FILE = os.environ.get("TASK_MANAGER_TOKEN", os.path.join(DEFAULT_CONFIG_DIR, "token.json"))
@@ -102,6 +108,7 @@ def default_config() -> dict:
         "tasks_tab": DEFAULT_TASKS_TAB,
         "worklog_tab": DEFAULT_WORKLOG_TAB,
         "data_tab": DEFAULT_DATA_TAB,
+        "perf_tab": DEFAULT_PERF_TAB,
         "sync_md_default": False,
         "saved_sheets": [],
     }
@@ -119,6 +126,7 @@ def load_config() -> dict:
                     cfg["tasks_tab"] = (raw.get("tasks_tab") or DEFAULT_TASKS_TAB).strip()
                     cfg["worklog_tab"] = (raw.get("worklog_tab") or DEFAULT_WORKLOG_TAB).strip()
                     cfg["data_tab"] = (raw.get("data_tab") or DEFAULT_DATA_TAB).strip()
+                    cfg["perf_tab"] = (raw.get("perf_tab") or DEFAULT_PERF_TAB).strip()
                     cfg["sync_md_default"] = bool(raw.get("sync_md_default", False))
                     if isinstance(raw.get("saved_sheets"), list):
                         cfg["saved_sheets"] = raw["saved_sheets"]
@@ -287,6 +295,7 @@ def get_sheet_map(
     tasks_tab: str = DEFAULT_TASKS_TAB,
     worklog_tab: str = DEFAULT_WORKLOG_TAB,
     data_tab: str = DEFAULT_DATA_TAB,
+    perf_tab: str = DEFAULT_PERF_TAB,
 ) -> dict:
     meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id, includeGridData=False).execute()
     sheets_list = meta.get("sheets", [])
@@ -309,6 +318,7 @@ def get_sheet_map(
         )
 
     data_entry = _find_sheet_entry(sheets_list, data_tab, DATA_GID)
+    perf_entry = _find_sheet_entry(sheets_list, perf_tab, PERF_GID)
 
     return {
         "spreadsheet_id": spreadsheet_id,
@@ -317,6 +327,7 @@ def get_sheet_map(
         "tasks": tasks_entry,
         "worklog": worklog_entry,
         "data": data_entry,
+        "perf": perf_entry,
     }
 
 
@@ -412,6 +423,240 @@ def build_worklog_record(row_num: int, r: list) -> dict:
     }
 
 
+def normalize_perf_month(year_raw, month_raw) -> dict | None:
+    y_str = str(year_raw or "").strip()
+    m_str = str(month_raw or "").strip()
+    if not re.fullmatch(r"\d{4}", y_str):
+        return None
+    m_idx = next((i for i, m in enumerate(MONTH_NAMES) if m.lower() == m_str.lower()), -1)
+    if m_idx < 0 and re.fullmatch(r"\d{1,2}", m_str):
+        n = int(m_str)
+        if 1 <= n <= 12:
+            m_idx = n - 1
+    if m_idx < 0:
+        return None
+    month_num = m_idx + 1
+    canonical = MONTH_NAMES[m_idx]
+    return {
+        "year": y_str,
+        "month": canonical,
+        "month_num": month_num,
+        "key": f"{y_str}-{month_num:02d}",
+        "label": f"{canonical} {y_str}",
+        "sort_val": int(y_str) * 100 + month_num,
+    }
+
+
+def extract_perf_years(data_rows: list[list], months_list: list[dict]) -> list[str]:
+    cur_y = date.today().year
+    yrs = {str(cur_y - 1), str(cur_y), str(cur_y + 1)}
+    for r in data_rows or []:
+        y = cell(r, 12)
+        if re.fullmatch(r"\d{4}", y):
+            yrs.add(y)
+    for m in months_list or []:
+        if re.fullmatch(r"\d{4}", m.get("year", "")):
+            yrs.add(m["year"])
+    return sorted(yrs, key=int, reverse=True)
+
+
+def parse_perf_standard_data(
+    p_rows: list[list],
+    data_rows: list[list] | None = None,
+    h_validations: dict[int, list[str]] | None = None,
+    perf_entry: dict | None = None,
+) -> dict:
+    h_validations = h_validations or {}
+    data_rows = data_rows or []
+    if not perf_entry:
+        today_d = date.today()
+        return {
+            "has_tab": False,
+            "title": DEFAULT_PERF_TAB,
+            "max_row": 0,
+            "last_row": 2,
+            "years": extract_perf_years(data_rows, []),
+            "month_names": list(MONTH_NAMES),
+            "latest_month_key": "",
+            "next_year": str(today_d.year),
+            "next_month": MONTH_NAMES[today_d.month - 1],
+            "months": [],
+            "items": [],
+        }
+
+    header_idx = -1
+    for i in range(min(5, len(p_rows))):
+        if cell(p_rows[i], 0).lower() == "year" and cell(p_rows[i], 1).lower() == "month":
+            header_idx = i
+            break
+    start_offset = header_idx + 1 if header_idx >= 0 else 2
+    last_row = start_offset
+    items = []
+    month_map: dict[str, dict] = {}
+    active_criteria = ""
+    prev_mk_key = ""
+
+    for i in range(start_offset, len(p_rows)):
+        r = p_rows[i] or []
+        row_num = i + 1
+        if not any(bool(cell(r, c)) for c in range(12)):
+            continue
+        last_row = row_num
+
+        mk = normalize_perf_month(cell(r, 0), cell(r, 1))
+        if not mk:
+            continue
+        if mk["key"] != prev_mk_key:
+            active_criteria = ""
+            prev_mk_key = mk["key"]
+        raw_crit = cell(r, 2)
+        if raw_crit:
+            active_criteria = raw_crit
+
+        weight = cell(r, 5)
+        score = cell(r, 8)
+        sup_score = cell(r, 10)
+        items.append({
+            "row": row_num,
+            "year": mk["year"],
+            "month": mk["month"],
+            "month_num": mk["month_num"],
+            "month_key": mk["key"],
+            "month_label": mk["label"],
+            "criteria": raw_crit,
+            "criteria_group": active_criteria,
+            "description": cell(r, 3),
+            "source": cell(r, 4),
+            "weight": weight,
+            "target": cell(r, 6),
+            "achievement": cell(r, 7),
+            "score": score,
+            "remarks": cell(r, 9),
+            "supervisor_score": sup_score,
+            "supervisor_remarks": cell(r, 11),
+            "sf": cell(r, 12),
+            "h_options": h_validations.get(row_num, []),
+        })
+
+        if mk["key"] not in month_map:
+            month_map[mk["key"]] = {
+                "key": mk["key"],
+                "year": mk["year"],
+                "month": mk["month"],
+                "month_num": mk["month_num"],
+                "label": mk["label"],
+                "sort_val": mk["sort_val"],
+                "start_row": row_num,
+                "end_row": row_num,
+                "row_count": 0,
+                "total_weight": 0.0,
+                "self_score": 0.0,
+                "supervisor_score": 0.0,
+                "net_score": 0.0,
+                "is_latest": False,
+            }
+        m = month_map[mk["key"]]
+        m["start_row"] = min(m["start_row"], row_num)
+        m["end_row"] = max(m["end_row"], row_num)
+        m["row_count"] += 1
+        try:
+            m["total_weight"] += float(weight) if weight else 0.0
+        except ValueError:
+            pass
+        try:
+            m["self_score"] += float(score) if score else 0.0
+        except ValueError:
+            pass
+        try:
+            m["supervisor_score"] += float(sup_score) if sup_score else 0.0
+        except ValueError:
+            pass
+
+    months = sorted(month_map.values(), key=lambda m: m["sort_val"], reverse=True)
+    for m in months:
+        m["total_weight"] = round(m["total_weight"], 2)
+        m["self_score"] = round(m["self_score"], 2)
+        m["supervisor_score"] = round(m["supervisor_score"], 2)
+        m["net_score"] = round(m["self_score"] + m["supervisor_score"], 2)
+    if months:
+        months[0]["is_latest"] = True
+
+    latest = months[0] if months else None
+    today_d = date.today()
+    next_year = str(today_d.year)
+    next_month = MONTH_NAMES[today_d.month - 1]
+    if latest:
+        if latest["month_num"] == 12:
+            next_year = str(int(latest["year"]) + 1)
+            next_month = MONTH_NAMES[0]
+        else:
+            next_year = latest["year"]
+            next_month = MONTH_NAMES[latest["month_num"]]
+
+    return {
+        "has_tab": True,
+        "title": perf_entry["title"],
+        "max_row": perf_entry["rowCount"],
+        "last_row": last_row,
+        "years": extract_perf_years(data_rows, months),
+        "month_names": list(MONTH_NAMES),
+        "latest_month_key": latest["key"] if latest else "",
+        "next_year": next_year,
+        "next_month": next_month,
+        "months": months,
+        "items": items,
+    }
+
+
+def validate_perf_achievement_val(raw_val, h_options: list[str] | None = None, desc: str = ""):
+    s = "" if raw_val is None else str(raw_val).strip()
+    if not s:
+        return ""
+    if h_options and s not in h_options:
+        raise ApiError(f"Achievement for '{desc or 'row'}' must be one of: {', '.join(h_options)}.")
+    try:
+        n = float(s)
+    except ValueError as exc:
+        raise ApiError(f"Achievement for '{desc or 'row'}' must be a valid non-negative number.") from exc
+    if n < 0:
+        raise ApiError(f"Achievement for '{desc or 'row'}' must be a valid non-negative number.")
+    return format_num_cell(n)
+
+
+def fetch_perf_h_validations(svc, sid: str, perf_entry: dict | None, p_rows: list[list]) -> dict[int, list[str]]:
+    if not perf_entry or not p_rows:
+        return {}
+    last_row = 2
+    for i, r in enumerate(p_rows):
+        if any(bool(cell(r, c)) for c in range(12)):
+            last_row = i + 1
+    if last_row < 3:
+        return {}
+    try:
+        qp = quote_sheet(perf_entry["title"])
+        grid = (
+            svc.spreadsheets()
+            .get(
+                spreadsheetId=sid,
+                ranges=[f"{qp}!H3:H{last_row}"],
+                fields="sheets.data.rowData.values.dataValidation",
+            )
+            .execute()
+        )
+        row_data = grid.get("sheets", [{}])[0].get("data", [{}])[0].get("rowData", [])
+        out: dict[int, list[str]] = {}
+        for idx, rd in enumerate(row_data):
+            dv = (rd.get("values") or [{}])[0].get("dataValidation") or {}
+            cond = dv.get("condition") or {}
+            if cond.get("type") == "ONE_OF_LIST":
+                vals = [str(v.get("userEnteredValue", "")).strip() for v in cond.get("values", []) if str(v.get("userEnteredValue", "")).strip()]
+                if vals:
+                    out[3 + idx] = vals
+        return out
+    except Exception:
+        return {}
+
+
 def build_setup_status(cfg: dict, sheet_url: str = "") -> dict:
     return {
         "mode": "local",
@@ -420,6 +665,7 @@ def build_setup_status(cfg: dict, sheet_url: str = "") -> dict:
         "tasks_tab": cfg.get("tasks_tab", DEFAULT_TASKS_TAB),
         "worklog_tab": cfg.get("worklog_tab", DEFAULT_WORKLOG_TAB),
         "data_tab": cfg.get("data_tab", DEFAULT_DATA_TAB),
+        "perf_tab": cfg.get("perf_tab", DEFAULT_PERF_TAB),
         "sync_md_default": bool(cfg.get("sync_md_default", False)),
         "saved_sheets": cfg.get("saved_sheets", []),
         "has_credentials": bool(resolve_credentials_file()),
@@ -457,14 +703,16 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
             "dropdowns": extract_dropdowns([], []),
             "tasks": [],
             "worklogs": [],
+            "perf": parse_perf_standard_data([], [], {}, None),
         }
 
     tasks_tab = cfg.get("tasks_tab", DEFAULT_TASKS_TAB)
     worklog_tab = cfg.get("worklog_tab", DEFAULT_WORKLOG_TAB)
     data_tab = cfg.get("data_tab", DEFAULT_DATA_TAB)
+    perf_tab = cfg.get("perf_tab", DEFAULT_PERF_TAB)
 
     def _run(svc):
-        smap = get_sheet_map(svc, spreadsheet_id, tasks_tab, worklog_tab, data_tab)
+        smap = get_sheet_map(svc, spreadsheet_id, tasks_tab, worklog_tab, data_tab, perf_tab)
         t_title = quote_sheet(smap["tasks"]["title"])
         w_title = quote_sheet(smap["worklog"]["title"])
         t_max_row = smap["tasks"]["rowCount"]
@@ -478,6 +726,9 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
         if smap["data"]:
             d_title = quote_sheet(smap["data"]["title"])
             ranges.append(f"{d_title}!A1:O45")
+        if smap.get("perf"):
+            p_title = quote_sheet(smap["perf"]["title"])
+            ranges.append(f"{p_title}!A1:M{smap['perf']['rowCount']}")
 
         res = (
             svc.spreadsheets()
@@ -486,10 +737,21 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
             .execute()
         )
         vrs = res.get("valueRanges", [])
-        meta_rows = vrs[0].get("values", []) if len(vrs) > 0 else []
-        t_rows = vrs[1].get("values", []) if len(vrs) > 1 else []
-        w_rows = vrs[2].get("values", []) if len(vrs) > 2 else []
-        d_rows = vrs[3].get("values", []) if len(vrs) > 3 else []
+        vr_idx = 0
+        meta_rows = vrs[vr_idx].get("values", []) if vr_idx < len(vrs) else []
+        vr_idx += 1
+        t_rows = vrs[vr_idx].get("values", []) if vr_idx < len(vrs) else []
+        vr_idx += 1
+        w_rows = vrs[vr_idx].get("values", []) if vr_idx < len(vrs) else []
+        vr_idx += 1
+        d_rows = []
+        if smap["data"]:
+            d_rows = vrs[vr_idx].get("values", []) if vr_idx < len(vrs) else []
+            vr_idx += 1
+        p_rows = []
+        if smap.get("perf"):
+            p_rows = vrs[vr_idx].get("values", []) if vr_idx < len(vrs) else []
+            vr_idx += 1
 
         r5 = meta_rows[0] if len(meta_rows) > 0 else []
         r6 = meta_rows[1] if len(meta_rows) > 1 else []
@@ -523,6 +785,10 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
         setup_info["tasks_tab"] = smap["tasks"]["title"]
         setup_info["worklog_tab"] = smap["worklog"]["title"]
         setup_info["data_tab"] = smap["data"]["title"] if smap["data"] else data_tab
+        setup_info["perf_tab"] = smap["perf"]["title"] if smap.get("perf") else perf_tab
+
+        h_vals = fetch_perf_h_validations(svc, spreadsheet_id, smap.get("perf"), p_rows)
+        perf_data = parse_perf_standard_data(p_rows, d_rows, h_vals, smap.get("perf"))
 
         return {
             "needs_setup": False,
@@ -550,6 +816,7 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
             "dropdowns": dropdowns,
             "tasks": tasks,
             "worklogs": worklogs,
+            "perf": perf_data,
         }
 
     if service is not None:
@@ -695,6 +962,7 @@ def _active_smap(svc, cfg: dict) -> tuple[str, dict]:
         cfg.get("tasks_tab", DEFAULT_TASKS_TAB),
         cfg.get("worklog_tab", DEFAULT_WORKLOG_TAB),
         cfg.get("data_tab", DEFAULT_DATA_TAB),
+        cfg.get("perf_tab", DEFAULT_PERF_TAB),
     )
     return sid, smap
 
@@ -1172,13 +1440,182 @@ def delete_worklog(row_num: int, expected: dict | None = None, sync_md: bool | N
         return data
 
 
+def create_perf_month(payload: dict) -> dict:
+    target_mk = normalize_perf_month(payload.get("year"), payload.get("month"))
+    if not target_mk:
+        raise ApiError("Valid 4-digit Year and Month name are required.")
+    src_mk = normalize_perf_month(payload.get("source_year"), payload.get("source_month"))
+    if not src_mk:
+        raise ApiError("Source Year and Month to copy from are required.")
+
+    cfg = load_config()
+    with sheets_lock:
+        svc = get_sheets_service()
+        sid, smap = _active_smap(svc, cfg)
+        perf_entry = smap.get("perf")
+        if not perf_entry:
+            raise ApiError(f"Tab '{cfg.get('perf_tab', DEFAULT_PERF_TAB)}' was not found in this Google Sheet.")
+        qp = quote_sheet(perf_entry["title"])
+        p_max = perf_entry["rowCount"]
+        p_rows = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sid, range=f"{qp}!A1:M{p_max}", valueRenderOption="FORMATTED_VALUE")
+            .execute()
+            .get("values", [])
+        )
+        h_vals = fetch_perf_h_validations(svc, sid, perf_entry, p_rows)
+        perf_state = parse_perf_standard_data(p_rows, [], h_vals, perf_entry)
+
+        if any(m["key"] == target_mk["key"] for m in perf_state["months"]):
+            raise ApiError(
+                f"Perf Standard entry for {target_mk['label']} already exists. View it from the Month selector.",
+                status=409,
+                code="DUPLICATE_MONTH",
+            )
+        src_rows = sorted(
+            [it for it in perf_state["items"] if it["month_key"] == src_mk["key"]],
+            key=lambda it: it["row"],
+        )
+        if not src_rows:
+            raise ApiError(f"No rows found for source month {src_mk['label']}.")
+
+        dst_start = perf_state["last_row"] + 1
+        dst_end = dst_start + len(src_rows) - 1
+        batch_reqs = []
+        if dst_end > p_max:
+            batch_reqs.append({
+                "appendDimension": {
+                    "sheetId": perf_entry["sheetId"],
+                    "dimension": "ROWS",
+                    "length": max(100, dst_end - p_max),
+                }
+            })
+
+        run_start = src_rows[0]["row"]
+        run_prev = src_rows[0]["row"]
+        run_dst_start = dst_start
+        for idx in range(1, len(src_rows) + 1):
+            cur_row = src_rows[idx]["row"] if idx < len(src_rows) else None
+            if cur_row == run_prev + 1:
+                run_prev = cur_row
+                continue
+            run_len = run_prev - run_start + 1
+            batch_reqs.append({
+                "copyPaste": {
+                    "source": {
+                        "sheetId": perf_entry["sheetId"],
+                        "startRowIndex": run_start - 1,
+                        "endRowIndex": run_prev,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 13,
+                    },
+                    "destination": {
+                        "sheetId": perf_entry["sheetId"],
+                        "startRowIndex": run_dst_start - 1,
+                        "endRowIndex": run_dst_start - 1 + run_len,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 13,
+                    },
+                    "pasteType": "PASTE_NORMAL",
+                }
+            })
+            if cur_row is not None:
+                run_dst_start += run_len
+                run_start = cur_row
+                run_prev = cur_row
+
+        svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={"requests": batch_reqs}).execute()
+
+        provided_ach = payload.get("achievements") if isinstance(payload.get("achievements"), list) else None
+        year_val = int(target_mk["year"])
+        ab_vals = []
+        h_vals_out = []
+        jl_vals = []
+        for i, src in enumerate(src_rows):
+            ab_vals.append([year_val, target_mk["month"]])
+            raw_ach = provided_ach[i] if provided_ach and i < len(provided_ach) else ""
+            h_vals_out.append([validate_perf_achievement_val(raw_ach, src["h_options"], src["description"])])
+            jl_vals.append(["", "", ""])
+
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=sid,
+            body={
+                "valueInputOption": "USER_ENTERED",
+                "data": [
+                    {"range": f"{qp}!A{dst_start}:B{dst_end}", "values": ab_vals},
+                    {"range": f"{qp}!H{dst_start}:H{dst_end}", "values": h_vals_out},
+                    {"range": f"{qp}!J{dst_start}:L{dst_end}", "values": jl_vals},
+                ],
+            },
+        ).execute()
+
+        data = fetch_bootstrap_data(svc, cfg=cfg)
+        data["created_month_key"] = target_mk["key"]
+        return data
+
+
+def update_perf_achievements(payload: dict) -> dict:
+    target_mk = normalize_perf_month(payload.get("year"), payload.get("month"))
+    if not target_mk:
+        raise ApiError("Valid Year and Month are required.")
+    updates_list = payload.get("updates")
+    if not isinstance(updates_list, list) or not updates_list:
+        raise ApiError("At least one Achievement update is required.")
+
+    cfg = load_config()
+    with sheets_lock:
+        svc = get_sheets_service()
+        sid, smap = _active_smap(svc, cfg)
+        perf_entry = smap.get("perf")
+        if not perf_entry:
+            raise ApiError(f"Tab '{cfg.get('perf_tab', DEFAULT_PERF_TAB)}' was not found in this Google Sheet.")
+        qp = quote_sheet(perf_entry["title"])
+        p_max = perf_entry["rowCount"]
+        p_rows = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sid, range=f"{qp}!A1:M{p_max}", valueRenderOption="FORMATTED_VALUE")
+            .execute()
+            .get("values", [])
+        )
+        h_vals = fetch_perf_h_validations(svc, sid, perf_entry, p_rows)
+        perf_state = parse_perf_standard_data(p_rows, [], h_vals, perf_entry)
+
+        month_obj = next((m for m in perf_state["months"] if m["key"] == target_mk["key"]), None)
+        if not month_obj:
+            raise ApiError(f"Perf Standard month {target_mk['label']} was not found.")
+        if month_obj["key"] != perf_state["latest_month_key"]:
+            latest_label = perf_state["months"][0]["label"] if perf_state["months"] else perf_state["latest_month_key"]
+            raise ApiError(f"Past months are view-only. Only the latest month ({latest_label}) can edit Achievement.", status=403)
+
+        by_row = {it["row"]: it for it in perf_state["items"] if it["month_key"] == month_obj["key"]}
+        data_updates = []
+        for u in updates_list:
+            rn = int(u.get("row", 0))
+            rec = by_row.get(rn)
+            if not rec:
+                raise ApiError(f"Row {rn} does not belong to {month_obj['label']}. Refreshing latest data.", status=409, code="STALE_ROW")
+            if "expected_description" in u and rec["description"] != str(u["expected_description"] or "").strip():
+                raise ApiError(f"Perf Standard row {rn} changed externally. Refreshing latest data.", status=409, code="STALE_ROW")
+            cleaned = validate_perf_achievement_val(u.get("achievement"), rec["h_options"], rec["description"])
+            data_updates.append({"range": f"{qp}!H{rn}", "values": [[cleaned]]})
+
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=sid,
+            body={"valueInputOption": "USER_ENTERED", "data": data_updates},
+        ).execute()
+        return fetch_bootstrap_data(svc, cfg=cfg)
+
+
 def _probe_sheet_setup(svc, payload: dict) -> tuple[dict, dict]:
     sid = parse_spreadsheet_id(payload.get("sheet_url") or payload.get("spreadsheet_id") or "")
     tasks_tab = (payload.get("tasks_tab") or DEFAULT_TASKS_TAB).strip() or DEFAULT_TASKS_TAB
     worklog_tab = (payload.get("worklog_tab") or DEFAULT_WORKLOG_TAB).strip() or DEFAULT_WORKLOG_TAB
     data_tab = (payload.get("data_tab") or DEFAULT_DATA_TAB).strip() or DEFAULT_DATA_TAB
+    perf_tab = (payload.get("perf_tab") or DEFAULT_PERF_TAB).strip() or DEFAULT_PERF_TAB
 
-    smap = get_sheet_map(svc, sid, tasks_tab, worklog_tab, data_tab)
+    smap = get_sheet_map(svc, sid, tasks_tab, worklog_tab, data_tab, perf_tab)
     t_title = quote_sheet(smap["tasks"]["title"])
     meta_rows = (
         svc.spreadsheets()
@@ -1207,6 +1644,7 @@ def _probe_sheet_setup(svc, payload: dict) -> tuple[dict, dict]:
         "tasks_tab": smap["tasks"]["title"],
         "worklog_tab": smap["worklog"]["title"],
         "data_tab": smap["data"]["title"] if smap["data"] else "",
+        "perf_tab": smap["perf"]["title"] if smap.get("perf") else "",
         "available_tabs": smap["available_tabs"],
         "url": url,
     }
@@ -1229,6 +1667,7 @@ def apply_setup(payload: dict) -> dict:
         cfg["tasks_tab"] = info["tasks_tab"]
         cfg["worklog_tab"] = info["worklog_tab"]
         cfg["data_tab"] = info["data_tab"] or DEFAULT_DATA_TAB
+        cfg["perf_tab"] = info.get("perf_tab") or DEFAULT_PERF_TAB
         if "sync_md_default" in payload:
             cfg["sync_md_default"] = bool(payload["sync_md_default"])
         upsert_saved_sheet(
@@ -1240,6 +1679,7 @@ def apply_setup(payload: dict) -> dict:
                 "tasks_tab": info["tasks_tab"],
                 "worklog_tab": info["worklog_tab"],
                 "data_tab": cfg["data_tab"],
+                "perf_tab": cfg["perf_tab"],
                 "url": info["url"],
             },
         )
@@ -1371,6 +1811,8 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
                 self._send_json(create_task(payload), status=201)
             elif parsed.path == "/api/worklogs":
                 self._send_json(create_worklog(payload), status=201)
+            elif parsed.path == "/api/perf/months":
+                self._send_json(create_perf_month(payload), status=201)
             elif parsed.path == "/api/setup/test":
                 self._send_json(test_setup_connection(payload))
             elif parsed.path == "/api/setup":
@@ -1394,6 +1836,8 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
                 self._send_json(update_task(int(m_task.group(1)), payload))
             elif m_wl:
                 self._send_json(update_worklog(int(m_wl.group(1)), payload))
+            elif parsed.path == "/api/perf/achievements":
+                self._send_json(update_perf_achievements(payload))
             else:
                 self.send_error(404)
         except Exception as exc:

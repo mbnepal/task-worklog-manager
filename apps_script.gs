@@ -15,9 +15,15 @@ const TWM_ACCESS_PIN = ""; // Optional: set a PIN to restrict access
 const TWM_DEFAULT_TASKS_TAB = "Tasks";
 const TWM_DEFAULT_WORKLOG_TAB = "Work log";
 const TWM_DEFAULT_DATA_TAB = "Data";
+const TWM_DEFAULT_PERF_TAB = "Perf Standard";
 const TWM_TASKS_GID = 697912632;
 const TWM_WORKLOG_GID = 1436624543;
 const TWM_DATA_GID = 1258735725;
+const TWM_PERF_GID = 1601402663;
+const TWM_MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
 const TWM_TASKS_START_ROW = 9;
 const TWM_WORKLOG_START_ROW = 10;
 
@@ -71,6 +77,7 @@ function twmResolveSheets_(ss, params) {
   const tasksTab = String((params && params.tasks_tab) || TWM_DEFAULT_TASKS_TAB).trim() || TWM_DEFAULT_TASKS_TAB;
   const worklogTab = String((params && params.worklog_tab) || TWM_DEFAULT_WORKLOG_TAB).trim() || TWM_DEFAULT_WORKLOG_TAB;
   const dataTab = String((params && params.data_tab) || TWM_DEFAULT_DATA_TAB).trim() || TWM_DEFAULT_DATA_TAB;
+  const perfTab = String((params && params.perf_tab) || TWM_DEFAULT_PERF_TAB).trim() || TWM_DEFAULT_PERF_TAB;
 
   const available = ss.getSheets().map(function (s) { return s.getName(); });
   const tasksSheet = twmFindSheet_(ss, tasksTab, TWM_TASKS_GID);
@@ -82,11 +89,13 @@ function twmResolveSheets_(ss, params) {
     throw new Error("Could not find tab '" + worklogTab + "'. Available tabs: " + available.join(", "));
   }
   const dataSheet = twmFindSheet_(ss, dataTab, TWM_DATA_GID);
+  const perfSheet = twmFindSheet_(ss, perfTab, TWM_PERF_GID);
 
   return {
     tasksSheet: tasksSheet,
     worklogSheet: worklogSheet,
     dataSheet: dataSheet,
+    perfSheet: perfSheet,
     availableTabs: available
   };
 }
@@ -272,12 +281,199 @@ function twmNormalizeWorklogStatus_(raw) {
   throw new Error("Status must be 'On-going' or 'Complete'.");
 }
 
+function twmNormalizePerfMonth_(yearRaw, monthRaw) {
+  const yStr = String(yearRaw || "").trim();
+  const mStr = String(monthRaw || "").trim();
+  if (!/^\d{4}$/.test(yStr)) return null;
+  let mIdx = -1;
+  for (let i = 0; i < TWM_MONTH_NAMES.length; i++) {
+    if (TWM_MONTH_NAMES[i].toLowerCase() === mStr.toLowerCase()) { mIdx = i; break; }
+  }
+  if (mIdx < 0 && /^\d{1,2}$/.test(mStr)) {
+    const n = Number(mStr);
+    if (n >= 1 && n <= 12) mIdx = n - 1;
+  }
+  if (mIdx < 0) return null;
+  const monthNum = mIdx + 1;
+  const canonicalMonth = TWM_MONTH_NAMES[mIdx];
+  const key = yStr + "-" + twmPad2_(monthNum);
+  return {
+    year: yStr,
+    month: canonicalMonth,
+    month_num: monthNum,
+    key: key,
+    label: canonicalMonth + " " + yStr,
+    sort_val: Number(yStr) * 100 + monthNum
+  };
+}
+
+function twmExtractPerfYears_(dataRows, monthsList) {
+  const seen = {};
+  const curYear = new Date().getFullYear();
+  seen[String(curYear - 1)] = true;
+  seen[String(curYear)] = true;
+  seen[String(curYear + 1)] = true;
+  for (let i = 0; i < dataRows.length; i++) {
+    const y = twmCell_(dataRows[i], 12);
+    if (/^\d{4}$/.test(y)) seen[y] = true;
+  }
+  for (let i = 0; i < monthsList.length; i++) {
+    if (/^\d{4}$/.test(monthsList[i].year)) seen[monthsList[i].year] = true;
+  }
+  return Object.keys(seen).sort(function (a, b) { return Number(b) - Number(a); });
+}
+
+function twmReadPerfStandard_(pSheet, dataRows) {
+  if (!pSheet) {
+    const now = new Date();
+    return {
+      has_tab: false,
+      title: TWM_DEFAULT_PERF_TAB,
+      max_row: 0,
+      last_row: 2,
+      years: twmExtractPerfYears_(dataRows || [], []),
+      month_names: TWM_MONTH_NAMES.slice(),
+      latest_month_key: "",
+      next_year: String(now.getFullYear()),
+      next_month: TWM_MONTH_NAMES[now.getMonth()],
+      months: [],
+      items: []
+    };
+  }
+  const pMax = pSheet.getMaxRows();
+  const pCols = Math.min(13, pSheet.getMaxColumns());
+  const pRows = pMax > 0 ? pSheet.getRange(1, 1, pMax, pCols).getDisplayValues() : [];
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(5, pRows.length); i++) {
+    if (twmCell_(pRows[i], 0).toLowerCase() === "year" && twmCell_(pRows[i], 1).toLowerCase() === "month") {
+      headerIdx = i;
+      break;
+    }
+  }
+  const startOffset = headerIdx >= 0 ? headerIdx + 1 : 2;
+  let lastRow = startOffset;
+  for (let i = startOffset; i < pRows.length; i++) {
+    for (let c = 0; c <= 11; c++) {
+      if (twmCell_(pRows[i], c)) { lastRow = i + 1; break; }
+    }
+  }
+
+  const hValidations = {};
+  if (lastRow >= 3) {
+    const dvs = pSheet.getRange(3, 8, lastRow - 2, 1).getDataValidations();
+    for (let i = 0; i < dvs.length; i++) {
+      const dv = dvs[i][0];
+      if (dv && dv.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
+        const vals = (dv.getCriteriaValues()[0] || []).map(function (v) { return String(v).trim(); }).filter(Boolean);
+        if (vals.length) hValidations[3 + i] = vals;
+      }
+    }
+  }
+
+  const items = [];
+  const monthMap = {};
+  let activeCriteria = "";
+  let prevMkKey = "";
+  for (let i = startOffset; i < pRows.length; i++) {
+    const r = pRows[i];
+    const rowNum = i + 1;
+    const mk = twmNormalizePerfMonth_(twmCell_(r, 0), twmCell_(r, 1));
+    if (!mk) continue;
+    if (mk.key !== prevMkKey) { activeCriteria = ""; prevMkKey = mk.key; }
+    const rawCrit = twmCell_(r, 2);
+    if (rawCrit) activeCriteria = rawCrit;
+    const weight = twmCell_(r, 5);
+    const score = twmCell_(r, 8);
+    const supScore = twmCell_(r, 10);
+    items.push({
+      row: rowNum,
+      year: mk.year,
+      month: mk.month,
+      month_num: mk.month_num,
+      month_key: mk.key,
+      month_label: mk.label,
+      criteria: rawCrit,
+      criteria_group: activeCriteria,
+      description: twmCell_(r, 3),
+      source: twmCell_(r, 4),
+      weight: weight,
+      target: twmCell_(r, 6),
+      achievement: twmCell_(r, 7),
+      score: score,
+      remarks: twmCell_(r, 9),
+      supervisor_score: supScore,
+      supervisor_remarks: twmCell_(r, 11),
+      sf: twmCell_(r, 12),
+      h_options: hValidations[rowNum] || []
+    });
+    if (!monthMap[mk.key]) {
+      monthMap[mk.key] = {
+        key: mk.key, year: mk.year, month: mk.month, month_num: mk.month_num,
+        label: mk.label, sort_val: mk.sort_val, start_row: rowNum, end_row: rowNum,
+        row_count: 0, total_weight: 0, self_score: 0, supervisor_score: 0, net_score: 0, is_latest: false
+      };
+    }
+    const m = monthMap[mk.key];
+    m.start_row = Math.min(m.start_row, rowNum);
+    m.end_row = Math.max(m.end_row, rowNum);
+    m.row_count += 1;
+    m.total_weight += Number(weight) || 0;
+    m.self_score += Number(score) || 0;
+    m.supervisor_score += Number(supScore) || 0;
+  }
+  const months = Object.keys(monthMap).map(function (k) { return monthMap[k]; }).sort(function (a, b) {
+    return b.sort_val - a.sort_val;
+  });
+  for (let i = 0; i < months.length; i++) {
+    months[i].total_weight = Math.round(months[i].total_weight * 100) / 100;
+    months[i].self_score = Math.round(months[i].self_score * 100) / 100;
+    months[i].supervisor_score = Math.round(months[i].supervisor_score * 100) / 100;
+    months[i].net_score = Math.round((months[i].self_score + months[i].supervisor_score) * 100) / 100;
+  }
+  if (months.length) months[0].is_latest = true;
+  const latest = months[0] || null;
+  const now = new Date();
+  let nextYear = String(now.getFullYear());
+  let nextMonth = TWM_MONTH_NAMES[now.getMonth()];
+  if (latest) {
+    if (latest.month_num === 12) { nextYear = String(Number(latest.year) + 1); nextMonth = TWM_MONTH_NAMES[0]; }
+    else { nextYear = latest.year; nextMonth = TWM_MONTH_NAMES[latest.month_num]; }
+  }
+  return {
+    has_tab: true,
+    title: pSheet.getName(),
+    max_row: pMax,
+    last_row: lastRow,
+    years: twmExtractPerfYears_(dataRows || [], months),
+    month_names: TWM_MONTH_NAMES.slice(),
+    latest_month_key: latest ? latest.key : "",
+    next_year: nextYear,
+    next_month: nextMonth,
+    months: months,
+    items: items
+  };
+}
+
+function twmValidatePerfAch_(rawVal, hOptions, desc) {
+  const s = rawVal === null || rawVal === undefined ? "" : String(rawVal).trim();
+  if (s === "") return "";
+  if (hOptions && hOptions.length > 0 && hOptions.indexOf(s) === -1) {
+    throw new Error("Achievement for '" + (desc || "row") + "' must be one of: " + hOptions.join(", ") + ".");
+  }
+  const n = Number(s);
+  if (!isFinite(n) || n < 0) {
+    throw new Error("Achievement for '" + (desc || "row") + "' must be a valid non-negative number.");
+  }
+  return twmFormatNum_(n);
+}
+
 function twmBuildBootstrap_(params) {
   const ss = twmGetSpreadsheet_(params && (params.sheet_url || params.spreadsheet_id));
   const resolved = twmResolveSheets_(ss, params);
   const tSheet = resolved.tasksSheet;
   const wSheet = resolved.worklogSheet;
   const dSheet = resolved.dataSheet;
+  const pSheet = resolved.perfSheet;
 
   const tMaxRow = tSheet.getMaxRows();
   const tCols = Math.min(26, tSheet.getMaxColumns());
@@ -356,6 +552,7 @@ function twmBuildBootstrap_(params) {
       tasks_tab: tSheet.getName(),
       worklog_tab: wSheet.getName(),
       data_tab: dSheet ? dSheet.getName() : TWM_DEFAULT_DATA_TAB,
+      perf_tab: pSheet ? pSheet.getName() : TWM_DEFAULT_PERF_TAB,
       sync_md_default: false
     },
     employee: {
@@ -369,7 +566,8 @@ function twmBuildBootstrap_(params) {
     },
     dropdowns: twmExtractDropdowns_(dRows, worklogs),
     tasks: tasks,
-    worklogs: worklogs
+    worklogs: worklogs,
+    perf: twmReadPerfStandard_(pSheet, dRows)
   };
 }
 
@@ -394,6 +592,7 @@ function twmProbeSetup_(params) {
     tasks_tab: tSheet.getName(),
     worklog_tab: resolved.worklogSheet.getName(),
     data_tab: resolved.dataSheet ? resolved.dataSheet.getName() : "",
+    perf_tab: resolved.perfSheet ? resolved.perfSheet.getName() : "",
     available_tabs: resolved.availableTabs,
     url: "https://docs.google.com/spreadsheets/d/" + sid + "/edit?gid=" + tGid + "#gid=" + tGid
   };
@@ -719,6 +918,94 @@ function doPost(e) {
       const boot = twmBuildBootstrap_(payload);
       boot.deleted_row = rowNum;
       return twmJsonOut_(boot);
+    }
+
+    if (action === "create_perf_month") {
+      const pSheet = resolved.perfSheet;
+      if (!pSheet) throw new Error("Perf Standard tab was not found in this Google Sheet.");
+      const targetMk = twmNormalizePerfMonth_(payload.year, payload.month);
+      if (!targetMk) throw new Error("Valid 4-digit Year and Month name are required.");
+      const srcMk = twmNormalizePerfMonth_(payload.source_year, payload.source_month);
+      if (!srcMk) throw new Error("Source Year and Month to copy from are required.");
+
+      const perfState = twmReadPerfStandard_(pSheet, []);
+      for (let i = 0; i < perfState.months.length; i++) {
+        if (perfState.months[i].key === targetMk.key) {
+          return twmJsonOut_({ ok: false, status: 409, error: "Perf Standard entry for " + targetMk.label + " already exists." });
+        }
+      }
+      const srcRows = perfState.items.filter(function (it) { return it.month_key === srcMk.key; })
+        .sort(function (a, b) { return a.row - b.row; });
+      if (!srcRows.length) throw new Error("No rows found for source month " + srcMk.label + ".");
+
+      const dstStart = perfState.last_row + 1;
+      const dstEnd = dstStart + srcRows.length - 1;
+      const pMax = pSheet.getMaxRows();
+      if (dstEnd > pMax) pSheet.insertRowsAfter(pMax, Math.max(100, dstEnd - pMax));
+
+      for (let i = 0; i < srcRows.length; i++) {
+        pSheet.getRange(srcRows[i].row, 1, 1, 13).copyTo(
+          pSheet.getRange(dstStart + i, 1, 1, 13),
+          SpreadsheetApp.CopyPasteType.PASTE_NORMAL,
+          false
+        );
+      }
+
+      const providedAch = Array.isArray(payload.achievements) ? payload.achievements : null;
+      const yearNum = Number(targetMk.year);
+      const abVals = [];
+      const hVals = [];
+      const jlVals = [];
+      for (let i = 0; i < srcRows.length; i++) {
+        abVals.push([isFinite(yearNum) ? yearNum : targetMk.year, targetMk.month]);
+        const rawAch = providedAch && i < providedAch.length ? providedAch[i] : "";
+        hVals.push([twmValidatePerfAch_(rawAch, srcRows[i].h_options, srcRows[i].description)]);
+        jlVals.push(["", "", ""]);
+      }
+      pSheet.getRange(dstStart, 1, srcRows.length, 2).setValues(abVals);
+      pSheet.getRange(dstStart, 8, srcRows.length, 1).setValues(hVals);
+      pSheet.getRange(dstStart, 10, srcRows.length, 3).setValues(jlVals);
+      SpreadsheetApp.flush();
+      const boot = twmBuildBootstrap_(payload);
+      boot.created_month_key = targetMk.key;
+      return twmJsonOut_(boot);
+    }
+
+    if (action === "update_perf_achievements") {
+      const pSheet = resolved.perfSheet;
+      if (!pSheet) throw new Error("Perf Standard tab was not found in this Google Sheet.");
+      const targetMk = twmNormalizePerfMonth_(payload.year, payload.month);
+      if (!targetMk) throw new Error("Valid Year and Month are required.");
+      const updatesList = Array.isArray(payload.updates) ? payload.updates : [];
+      if (!updatesList.length) throw new Error("At least one Achievement update is required.");
+
+      const perfState = twmReadPerfStandard_(pSheet, []);
+      const monthObj = perfState.months.filter(function (m) { return m.key === targetMk.key; })[0];
+      if (!monthObj) throw new Error("Perf Standard month " + targetMk.label + " was not found.");
+      if (monthObj.key !== perfState.latest_month_key) {
+        const latestObj = perfState.months[0];
+        throw new Error("Past months are view-only. Only the latest month (" + (latestObj ? latestObj.label : perfState.latest_month_key) + ") can edit Achievement.");
+      }
+
+      const byRow = {};
+      perfState.items.filter(function (it) { return it.month_key === monthObj.key; }).forEach(function (it) {
+        byRow[it.row] = it;
+      });
+      for (let i = 0; i < updatesList.length; i++) {
+        const u = updatesList[i];
+        const rn = Number(u.row);
+        const rec = byRow[rn];
+        if (!rec) {
+          return twmJsonOut_({ ok: false, status: 409, error: "Row " + rn + " does not belong to " + monthObj.label + "." });
+        }
+        if (u.expected_description !== undefined && rec.description !== String(u.expected_description).trim()) {
+          return twmJsonOut_({ ok: false, status: 409, error: "Perf Standard row " + rn + " changed externally." });
+        }
+        const cleaned = twmValidatePerfAch_(u.achievement, rec.h_options, rec.description);
+        pSheet.getRange(rn, 8).setValue(cleaned);
+      }
+      SpreadsheetApp.flush();
+      return twmJsonOut_(twmBuildBootstrap_(payload));
     }
 
     return twmJsonOut_({ ok: false, error: "Unknown action: " + action });

@@ -28,15 +28,28 @@ class FakeSheetsMemory:
                 {"properties": {"sheetId": 101, "title": "Tasks", "gridProperties": {"rowCount": 150, "columnCount": 26}}},
                 {"properties": {"sheetId": 202, "title": "Work log", "gridProperties": {"rowCount": 998, "columnCount": 7}}},
                 {"properties": {"sheetId": 303, "title": "Data", "gridProperties": {"rowCount": 1000, "columnCount": 29}}},
+                {"properties": {"sheetId": 404, "title": "Perf Standard", "gridProperties": {"rowCount": 200, "columnCount": 26}}},
             ],
         }
         self.cells = {}
         self.written_ranges = []
+        self.batch_requests = []
+        self.perf_h_dv = {}
 
-        self.set_row("Data", 1, ["Sn.", "HR ID", "Staff Name", "Email", "Designation", "Department", "", "", "On Schedule", "Department", "", "", "", "Low", "Very Difficult"])
-        self.set_row("Data", 2, ["1", "10", "Alice Example", "", "Programmer", "Programming", "", "", "Behind Schedule", "Management", "", "", "", "Medium", "Difficult"])
-        self.set_row("Data", 3, ["2", "11", "Bob Example", "", "Manager", "Management", "", "", "", "Programming", "", "", "", "High", "Moderate"])
-        self.set_row("Data", 4, ["", "", "Office Assistant", "", "", "", "", "", "", "Support", "", "", "", "", "Easy"])
+        self.set_row("Data", 1, ["Sn.", "HR ID", "Staff Name", "Email", "Designation", "Department", "", "", "On Schedule", "Department", "January", "01", "2025", "Low", "Very Difficult"])
+        self.set_row("Data", 2, ["1", "10", "Alice Example", "", "Programmer", "Programming", "", "", "Behind Schedule", "Management", "February", "02", "2026", "Medium", "Difficult"])
+        self.set_row("Data", 3, ["2", "11", "Bob Example", "", "Manager", "Management", "", "", "", "Programming", "March", "03", "", "High", "Moderate"])
+        self.set_row("Data", 4, ["", "", "Office Assistant", "", "", "", "", "", "", "Support", "April", "04", "2027", "", "Easy"])
+
+        # Seed Perf Standard: 2025 October (R4..R5) and 2026 October (R6..R7)
+        self.set_row("Perf Standard", 2, ["Year", "Month", "Criteria", "Description", "Source", "Weight", "Target", "Achievement", "Score", "Remarks", "Supervisor Score", "Remarks", "SF"])
+        self.set_row("Perf Standard", 4, ["2025", "October", "Punctuality", "Late Arrival/ Early Exit", "Attendance Report", "5", "0", "4", "4", "", "0", "", "0"])
+        self.set_row("Perf Standard", 5, ["2025", "October", "", "Find and fix issues quickly", "Reporting", "10", "10", "10", "10", "", "-1", "Good", "0"])
+        self.set_row("Perf Standard", 6, ["2026", "October", "Punctuality", "Late Arrival/ Early Exit", "Attendance Report", "5", "0", "0", "5", "On time", "-1", "Keep going", "0"])
+        self.set_row("Perf Standard", 7, ["2026", "October", "", "Find and fix issues quickly", "Reporting", "10", "10", "10", "10", "", "0", "", "0"])
+        self.set_cell("Perf Standard", 8, 13, "0")  # Formula M column on empty row should not count as used row
+        self.perf_h_dv[("Perf Standard", 4)] = ["0", "4", "5"]
+        self.perf_h_dv[("Perf Standard", 6)] = ["0", "4", "5"]
 
         self.set_row("Tasks", 5, ["", "Name", "Alice Example", ""])
         self.set_row("Tasks", 6, ["", "Department", "Programming", ""])
@@ -116,8 +129,37 @@ class FakeSheetsMemory:
                 return FakeExecute({})
 
         class SpreadsheetsAPI:
-            def get(self, spreadsheetId, includeGridData=False):
+            def get(self, spreadsheetId, includeGridData=False, ranges=None, fields=None):
+                if ranges and fields and "Perf Standard" in ranges[0]:
+                    sheet_title, r1, _c1, r2, _c2 = mem.parse_a1(ranges[0])
+                    row_data = []
+                    for rn in range(r1, r2 + 1):
+                        opts = mem.perf_h_dv.get((sheet_title, rn), [])
+                        if opts:
+                            dv = {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in opts]}}
+                            row_data.append({"values": [{"dataValidation": dv}]})
+                        else:
+                            row_data.append({"values": [{}]})
+                    return FakeExecute({"sheets": [{"data": [{"rowData": row_data}]}]})
                 return FakeExecute(mem.meta)
+
+            def batchUpdate(self, spreadsheetId, body):
+                id_to_title = {s["properties"]["sheetId"]: s["properties"]["title"] for s in mem.meta["sheets"]}
+                for req in body.get("requests", []):
+                    mem.batch_requests.append(req)
+                    if "copyPaste" in req:
+                        cp = req["copyPaste"]
+                        src = cp["source"]
+                        dst = cp["destination"]
+                        st_title = id_to_title[src["sheetId"]]
+                        for off in range(src["endRowIndex"] - src["startRowIndex"]):
+                            sr = src["startRowIndex"] + 1 + off
+                            dr = dst["startRowIndex"] + 1 + off
+                            for c in range(src["startColumnIndex"] + 1, src["endColumnIndex"] + 1):
+                                mem.cells[(st_title, dr, c)] = mem.cells.get((st_title, sr, c), "")
+                            if (st_title, sr) in mem.perf_h_dv:
+                                mem.perf_h_dv[(st_title, dr)] = list(mem.perf_h_dv[(st_title, sr)])
+                return FakeExecute({})
 
             def values(self):
                 return ValuesAPI()
@@ -272,6 +314,77 @@ class TaskWorklogTests(unittest.TestCase):
             self.assertEqual(self.mem.cells[("Work log", 10, 1)], "1")
             for rng in self.mem.written_ranges:
                 self.assertNotRegex(rng, r"!A\d")
+
+    def test_perf_standard_months_copy_and_achievement_only(self):
+        with patch.object(twm, "get_sheets_service", return_value=self.svc):
+            twm.apply_setup({"sheet_url": "1SampleSheetId1234567890abcdef"})
+            boot = twm.fetch_bootstrap_data(service=self.svc)
+            perf = boot["perf"]
+            self.assertTrue(perf["has_tab"])
+            self.assertEqual(perf["latest_month_key"], "2026-10")
+            self.assertEqual([m["key"] for m in perf["months"]], ["2026-10", "2025-10"])
+            self.assertEqual(perf["next_year"], "2026")
+            self.assertEqual(perf["next_month"], "November")
+            oct_rows = [it for it in perf["items"] if it["month_key"] == "2026-10"]
+            self.assertEqual(oct_rows[0]["h_options"], ["0", "4", "5"])
+
+            # Create new month copied from 2026 October -> lands at rows 8..9 (ignoring empty SF col row 8)
+            created = twm.create_perf_month({
+                "year": "2026",
+                "month": "November",
+                "source_year": "2026",
+                "source_month": "October",
+                "achievements": ["4", "8"],
+            })
+            self.assertEqual(created["created_month_key"], "2026-11")
+            self.assertEqual(created["perf"]["latest_month_key"], "2026-11")
+            nov_rows = [it for it in created["perf"]["items"] if it["month_key"] == "2026-11"]
+            self.assertEqual([r["row"] for r in nov_rows], [8, 9])
+            self.assertEqual(nov_rows[0]["criteria"], "Punctuality")
+            self.assertEqual(nov_rows[0]["achievement"], "4")
+            self.assertEqual(nov_rows[1]["achievement"], "8")
+            self.assertEqual(nov_rows[0]["remarks"], "")
+            self.assertEqual(nov_rows[0]["supervisor_score"], "")
+            self.assertEqual(nov_rows[0]["supervisor_remarks"], "")
+            self.assertEqual(nov_rows[0]["h_options"], ["0", "4", "5"])
+
+            # Duplicate month blocked
+            with self.assertRaises(twm.ApiError) as dup_ctx:
+                twm.create_perf_month({
+                    "year": "2026",
+                    "month": "November",
+                    "source_year": "2026",
+                    "source_month": "October",
+                })
+            self.assertEqual(dup_ctx.exception.status, 409)
+
+            # Old month is view-only
+            with self.assertRaises(twm.ApiError) as old_ctx:
+                twm.update_perf_achievements({
+                    "year": "2026",
+                    "month": "October",
+                    "updates": [{"row": 6, "achievement": "4", "expected_description": "Late Arrival/ Early Exit"}],
+                })
+            self.assertEqual(old_ctx.exception.status, 403)
+
+            # Invalid ONE_OF_LIST option rejected
+            with self.assertRaises(twm.ApiError):
+                twm.update_perf_achievements({
+                    "year": "2026",
+                    "month": "November",
+                    "updates": [{"row": 8, "achievement": "3", "expected_description": "Late Arrival/ Early Exit"}],
+                })
+
+            # Valid edit updates ONLY Column H on latest month
+            self.mem.written_ranges.clear()
+            upd = twm.update_perf_achievements({
+                "year": "2026",
+                "month": "November",
+                "updates": [{"row": 8, "achievement": "5", "expected_description": "Late Arrival/ Early Exit"}],
+            })
+            self.assertEqual(self.mem.written_ranges, ["'Perf Standard'!H8"])
+            nov_upd = [it for it in upd["perf"]["items"] if it["row"] == 8][0]
+            self.assertEqual(nov_upd["achievement"], "5")
 
 
 if __name__ == "__main__":

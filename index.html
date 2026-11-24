@@ -675,6 +675,28 @@
       border-color: var(--primary);
     }
 
+    .perf-ach-input {
+      width: 96px;
+      padding: 6px 8px;
+      border: 1.5px solid #93c5fd;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: inherit;
+      background: #eff6ff;
+      color: var(--text);
+      outline: none;
+    }
+    .perf-ach-input:focus {
+      border-color: var(--primary);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+    }
+    .perf-ach-input.dirty {
+      border-color: #d97706;
+      background: #fffbeb;
+    }
+
     .hidden { display: none !important; }
     .highlight-req { border-color: #d97706 !important; background: #fffbeb !important; }
   </style>
@@ -713,6 +735,9 @@
         </button>
         <button class="tab-btn" id="tabBtnWorklog" onclick="switchTab('worklogs')">
           Work Log <span class="tab-count" id="worklogCountBadge">0</span>
+        </button>
+        <button class="tab-btn" id="tabBtnPerf" onclick="switchTab('perf')">
+          Perf Standard <span class="tab-count" id="perfCountBadge">0</span>
         </button>
       </div>
       <div class="brand-sub" style="padding: 8px 0;">
@@ -830,6 +855,50 @@
         <div class="table-footer">
           <span id="worklogFooterInfo">Loading...</span>
           <span>Syncs Google Sheet ('Work log') &amp; optional local Work_Log_History.md</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PERF STANDARD VIEW -->
+    <section id="perfView" class="hidden">
+      <div class="kpi-grid" id="perfKpis"></div>
+
+      <div id="perfModeBanner" class="check-banner ok hidden" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+        <span id="perfModeBannerText"></span>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-sm hidden" id="discardPerfAchBtn" onclick="discardPerfEdits()">Discard Edits</button>
+          <button type="button" class="btn btn-sm btn-success hidden" id="savePerfAchBtn" onclick="savePerfAchievements()">Save Achievements</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <select id="perfMonthSelect" onchange="onPerfMonthChange()" style="min-width:220px; font-weight:700;"></select>
+        <input class="input search-box" id="perfSearch" type="text" placeholder="Search criteria, description, source, remarks..." />
+        <button type="button" class="btn btn-primary" id="newPerfMonthBtn" onclick="openNewPerfMonthModal()">+ New Month</button>
+        <button type="button" class="btn btn-success hidden" id="toolbarSavePerfBtn" onclick="savePerfAchievements()">✓ Save Achievements</button>
+      </div>
+
+      <div class="table-card">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 175px;">Criteria</th>
+                <th>Description &amp; Source</th>
+                <th style="width: 74px;">Weight</th>
+                <th style="width: 74px;">Target</th>
+                <th style="width: 122px;">Achievement</th>
+                <th style="width: 82px;">Score (Auto)</th>
+                <th style="width: 92px;">Supervisor</th>
+                <th style="width: 210px;">Remarks</th>
+              </tr>
+            </thead>
+            <tbody id="perfTbody"></tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span id="perfFooterInfo">Loading...</span>
+          <span>Only Achievement (Col H) on the current/new month is editable; past months are view-only and formulas/weights/supervisor scores stay locked.</span>
         </div>
       </div>
     </section>
@@ -1111,6 +1180,71 @@
     </div>
   </div>
 
+  <!-- NEW PERF MONTH MODAL -->
+  <div class="modal-backdrop" id="perfMonthModalBackdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>New Month Entry — Perf Standard</h2>
+        <button class="modal-close" onclick="closeModal('perfMonthModalBackdrop')">&times;</button>
+      </div>
+      <form id="perfMonthForm" onsubmit="submitPerfMonthForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
+        <div class="modal-body">
+          <div class="cell-sub" style="margin-top:-4px;">
+            Create a new month block by copying KPI structure, weights, targets, and Score formulas from a previous month. Supervisor scores and old remarks are cleared automatically; <strong>only Achievement (Col H)</strong> can be edited.
+          </div>
+
+          <div class="form-grid-3">
+            <div class="field">
+              <label>New Year <span class="req">*</span></label>
+              <select id="pm_year" onchange="checkPerfMonthDuplicate()" required></select>
+            </div>
+            <div class="field">
+              <label>New Month <span class="req">*</span></label>
+              <select id="pm_month" onchange="checkPerfMonthDuplicate()" required></select>
+            </div>
+            <div class="field">
+              <label>Copy From Month <span class="req">*</span></label>
+              <select id="pm_source_month" onchange="onPerfSourceChange()" required></select>
+            </div>
+          </div>
+
+          <div id="pm_dup_warn" class="check-banner warn hidden"></div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <div class="form-section-title" style="margin:0; border:0; padding:0; flex:1;">
+              Achievement Values for New Month (Col H Only)
+            </div>
+            <div class="quick-chips" style="margin:0;">
+              <button type="button" class="chip-btn" onclick="prefillNewPerfAchievements('copy')">Copy Previous Values</button>
+              <button type="button" class="chip-btn" onclick="prefillNewPerfAchievements('clear')">Clear All</button>
+            </div>
+          </div>
+
+          <div style="border:1px solid var(--border); border-radius:10px; overflow:auto; max-height:320px; background:#fff;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:42px;">#</th>
+                  <th>Criteria &amp; Description (Read-Only)</th>
+                  <th style="width:92px;">Wt / Target</th>
+                  <th style="width:128px;">Achievement</th>
+                </tr>
+              </thead>
+              <tbody id="pm_preview_tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="cell-sub" id="pmFooterHint">Preserves Score formulas (Col I), SF (Col M) &amp; dropdown validations</span>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn" onclick="closeModal('perfMonthModalBackdrop')">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="pmSubmitBtn">Create Month &amp; Save</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- SETUP MODAL -->
   <div class="modal-backdrop" id="setupModalBackdrop">
     <div class="modal">
@@ -1151,7 +1285,7 @@
           <details id="sf_advanced_details" style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; background:#f8fafc;">
             <summary id="sf_advanced_summary" style="cursor:pointer; font-weight:700; color:var(--muted);">Advanced Options (Tab Names, Mode &amp; Reset)</summary>
             <div style="margin-top:12px; display:flex; flex-direction:column; gap:12px;">
-              <div class="form-grid-3">
+              <div class="form-grid">
                 <div class="field">
                   <label>Tasks Tab Name <span class="req">*</span></label>
                   <input class="input" type="text" id="sf_tasks_tab" value="Tasks" required />
@@ -1163,6 +1297,10 @@
                 <div class="field">
                   <label>Data Tab Name (Dropdowns)</label>
                   <input class="input" type="text" id="sf_data_tab" value="Data" />
+                </div>
+                <div class="field">
+                  <label>Perf Standard Tab Name</label>
+                  <input class="input" type="text" id="sf_perf_tab" value="Perf Standard" />
                 </div>
               </div>
 
@@ -1232,6 +1370,10 @@
       dropdowns: { staff: [], departments: [], priorities: [], difficulties: [], projects: [] },
       tasks: [],
       worklogs: [],
+      perf: { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" },
+      perfSelectedKey: "",
+      perfDrafts: {},
+      perfNewDrafts: [],
       taskStatusFilter: "all",
       wlStatusFilter: "all",
       editingTaskRow: null,
@@ -1377,6 +1519,16 @@
       state.dropdowns = data.dropdowns || {};
       state.tasks = data.tasks || [];
       state.worklogs = data.worklogs || [];
+      state.perf = data.perf || { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" };
+      state.perfDrafts = {};
+      if (data.created_month_key) {
+        state.perfSelectedKey = data.created_month_key;
+      } else {
+        const monthKeys = (state.perf.months || []).map(m => m.key);
+        if (!state.perfSelectedKey || !monthKeys.includes(state.perfSelectedKey)) {
+          state.perfSelectedKey = state.perf.latest_month_key || monthKeys[0] || "";
+        }
+      }
 
       const sheetLink = document.getElementById("sheetLink");
       const sheetSep = document.getElementById("sheetLinkSep");
@@ -1440,11 +1592,13 @@
 
       document.getElementById("tasksCountBadge").textContent = state.tasks.length;
       document.getElementById("worklogCountBadge").textContent = state.worklogs.length;
+      document.getElementById("perfCountBadge").textContent = (state.perf.months || []).length;
 
       hydrateFilterSelects();
       hydrateModalDropdowns();
       renderTasks();
       renderWorklogs();
+      renderPerfStandard();
     }
 
     function hydrateFilterSelects() {
@@ -1479,6 +1633,21 @@
 
       document.getElementById("wlProjectDatalist").innerHTML =
         projects.map(p => `<option value="${escapeHtml(p)}"></option>`).join("");
+
+      const pSel = document.getElementById("perfMonthSelect");
+      const pMonths = state.perf?.months || [];
+      if (!pMonths.length) {
+        pSel.innerHTML = `<option value="">No months available</option>`;
+        pSel.value = "";
+      } else {
+        pSel.innerHTML = pMonths
+          .map(m => `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)}${m.is_latest ? " (Latest • Edit Achievement)" : " (View Only)"}</option>`)
+          .join("");
+        if (!state.perfSelectedKey || !pMonths.some(m => m.key === state.perfSelectedKey)) {
+          state.perfSelectedKey = state.perf.latest_month_key || pMonths[0].key;
+        }
+        pSel.value = state.perfSelectedKey;
+      }
     }
 
     function hydrateModalDropdowns() {
@@ -1500,14 +1669,18 @@
       state.activeTab = tab;
       document.getElementById("tabBtnTasks").classList.toggle("active", tab === "tasks");
       document.getElementById("tabBtnWorklog").classList.toggle("active", tab === "worklogs");
+      document.getElementById("tabBtnPerf").classList.toggle("active", tab === "perf");
       document.getElementById("tasksView").classList.toggle("hidden", tab !== "tasks");
       document.getElementById("worklogsView").classList.toggle("hidden", tab !== "worklogs");
-      document.getElementById("primaryNewBtn").textContent = tab === "tasks" ? "+ New Task" : "+ New Work Log";
+      document.getElementById("perfView").classList.toggle("hidden", tab !== "perf");
+      document.getElementById("primaryNewBtn").textContent =
+        tab === "tasks" ? "+ New Task" : tab === "worklogs" ? "+ New Work Log" : "+ New Month";
     }
 
     function openPrimaryNew() {
       if (state.activeTab === "tasks") openTaskModal();
-      else openWorklogModal();
+      else if (state.activeTab === "worklogs") openWorklogModal();
+      else openNewPerfMonthModal();
     }
 
     function jumpToAttention() {
@@ -1757,6 +1930,356 @@
       }
       document.getElementById("worklogFooterInfo").textContent =
         `Showing ${filtered.length} of ${all.length} entries • Filtered time: ${filteredMins} mins (${(filteredMins / 60).toFixed(2)} hrs)`;
+    }
+
+    // --- PERF STANDARD RENDER & ACHIEVEMENT-ONLY EDITING ---
+    function onPerfMonthChange() {
+      const nextKey = document.getElementById("perfMonthSelect").value;
+      state.perfSelectedKey = nextKey;
+      state.perfDrafts = {};
+      renderPerfStandard();
+    }
+
+    function onPerfAchievementInput(rowNum, val) {
+      const item = (state.perf.items || []).find(it => it.row === rowNum);
+      if (!item) return;
+      const cleaned = String(val ?? "").trim();
+      const orig = String(item.achievement ?? "").trim();
+      if (cleaned === orig) delete state.perfDrafts[rowNum];
+      else state.perfDrafts[rowNum] = String(val ?? "");
+      syncPerfDirtyUi(rowNum);
+    }
+
+    function syncPerfDirtyUi(changedRow = null) {
+      if (changedRow !== null) {
+        const el = document.getElementById(`perf_ach_${changedRow}`);
+        if (el) el.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfDrafts, changedRow));
+      }
+      const dirtyCount = Object.keys(state.perfDrafts).length;
+      const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
+      const isEditable = Boolean(monthObj && monthObj.is_latest);
+      document.getElementById("savePerfAchBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
+      document.getElementById("discardPerfAchBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
+      document.getElementById("toolbarSavePerfBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
+      document.getElementById("savePerfAchBtn").textContent = `Save Achievements (${dirtyCount})`;
+      document.getElementById("toolbarSavePerfBtn").textContent = `✓ Save Achievements (${dirtyCount})`;
+    }
+
+    function discardPerfEdits() {
+      state.perfDrafts = {};
+      renderPerfStandard();
+    }
+
+    function renderPerfStandard() {
+      const perf = state.perf || {};
+      const months = perf.months || [];
+      const banner = document.getElementById("perfModeBanner");
+      const bannerText = document.getElementById("perfModeBannerText");
+      const kpis = document.getElementById("perfKpis");
+      const tbody = document.getElementById("perfTbody");
+      const newBtn = document.getElementById("newPerfMonthBtn");
+
+      if (!perf.has_tab) {
+        kpis.innerHTML = "";
+        banner.className = "check-banner warn";
+        banner.classList.remove("hidden");
+        bannerText.textContent = "Tab 'Perf Standard' was not found in this Google Sheet. Check Advanced Options in Setup if renamed.";
+        newBtn.disabled = true;
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No Perf Standard tab detected in this spreadsheet.</td></tr>`;
+        document.getElementById("perfFooterInfo").textContent = "0 entries";
+        syncPerfDirtyUi();
+        return;
+      }
+
+      newBtn.disabled = months.length === 0;
+      const monthObj = months.find(m => m.key === state.perfSelectedKey) || months[0] || null;
+      if (!monthObj) {
+        kpis.innerHTML = "";
+        banner.className = "check-banner warn";
+        banner.classList.remove("hidden");
+        bannerText.textContent = "No month entries exist in the 'Perf Standard' sheet yet.";
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No Perf Standard entries found.</td></tr>`;
+        document.getElementById("perfFooterInfo").textContent = "0 entries";
+        syncPerfDirtyUi();
+        return;
+      }
+
+      state.perfSelectedKey = monthObj.key;
+      const isEditable = Boolean(monthObj.is_latest);
+
+      kpis.innerHTML = `
+        <div class="kpi-card">
+          <div class="kpi-label">Selected Month</div>
+          <div class="kpi-value" style="font-size:20px;">${escapeHtml(monthObj.label)}</div>
+          <div class="kpi-sub">${isEditable ? "Latest month • Achievement editable" : "Past month • View only"}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total Weight</div>
+          <div class="kpi-value">${monthObj.total_weight}</div>
+          <div class="kpi-sub">${monthObj.row_count} KPIs • Rows ${monthObj.start_row}–${monthObj.end_row}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Self Score (Col I)</div>
+          <div class="kpi-value" style="color:var(--primary)">${monthObj.self_score}</div>
+          <div class="kpi-sub">Formula-calculated score</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Supervisor &amp; Net Score</div>
+          <div class="kpi-value" style="color:var(--green)">${monthObj.net_score}</div>
+          <div class="kpi-sub">Supervisor adj: ${monthObj.supervisor_score}</div>
+        </div>
+      `;
+
+      if (isEditable) {
+        banner.className = "check-banner ok";
+        bannerText.textContent =
+          `Current Month (${monthObj.label}): Only the Achievement column (Col H) is editable. Criteria, Weight, Target, Formulas, and Supervisor fields remain locked.`;
+      } else {
+        banner.className = "check-banner warn";
+        bannerText.textContent =
+          `Viewing Past Month (${monthObj.label}) — Read-only archive. Select the latest month to edit Achievement, or click + New Month.`;
+      }
+      banner.classList.remove("hidden");
+
+      const q = document.getElementById("perfSearch").value.trim().toLowerCase();
+      const monthItems = (perf.items || []).filter(it => it.month_key === monthObj.key);
+      const filtered = monthItems.filter(it => {
+        if (!q) return true;
+        return [it.criteria_group, it.description, it.source, it.remarks, it.supervisor_remarks]
+          .join(" ").toLowerCase().includes(q);
+      });
+
+      if (!filtered.length) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No KPI rows match your search.</td></tr>`;
+      } else {
+        let lastShownCrit = "";
+        tbody.innerHTML = filtered.map(it => {
+          const curAch = Object.prototype.hasOwnProperty.call(state.perfDrafts, it.row)
+            ? state.perfDrafts[it.row]
+            : (it.achievement ?? "");
+          const isDirty = Object.prototype.hasOwnProperty.call(state.perfDrafts, it.row);
+          const showCrit = it.criteria || (it.criteria_group && it.criteria_group !== lastShownCrit ? it.criteria_group : "");
+          if (it.criteria_group) lastShownCrit = it.criteria_group;
+
+          let achCellHtml;
+          if (!isEditable) {
+            achCellHtml = `<span class="mono" style="font-weight:700;">${escapeHtml(curAch !== "" ? curAch : "—")}</span>`;
+          } else if (Array.isArray(it.h_options) && it.h_options.length) {
+            const opts = [`<option value=""></option>`].concat(
+              it.h_options.map(opt => `<option value="${escapeHtml(opt)}" ${String(curAch) === String(opt) ? "selected" : ""}>${escapeHtml(opt)}</option>`)
+            );
+            achCellHtml = `<select id="perf_ach_${it.row}" class="perf-ach-input ${isDirty ? "dirty" : ""}" onchange="onPerfAchievementInput(${it.row}, this.value)">${opts.join("")}</select>`;
+          } else {
+            achCellHtml = `<input id="perf_ach_${it.row}" type="number" step="any" min="0" class="perf-ach-input ${isDirty ? "dirty" : ""}" value="${escapeHtml(curAch)}" oninput="onPerfAchievementInput(${it.row}, this.value)" />`;
+          }
+
+          const remParts = [];
+          if (it.remarks) remParts.push(`<div><strong>Self:</strong> ${escapeHtml(it.remarks)}</div>`);
+          if (it.supervisor_remarks) remParts.push(`<div class="cell-sub"><strong>Sup:</strong> ${escapeHtml(it.supervisor_remarks)}</div>`);
+
+          return `
+            <tr>
+              <td>
+                ${showCrit ? `<span class="badge badge-blue">${escapeHtml(showCrit)}</span>` : `<span class="cell-sub">${escapeHtml(it.criteria_group || "—")}</span>`}
+                <div class="cell-sub mono" style="margin-top:4px;">Row ${it.row}</div>
+              </td>
+              <td>
+                <div class="cell-title">${escapeHtml(it.description)}</div>
+                ${it.source ? `<div class="cell-sub" style="margin-top:3px;">Source: ${escapeHtml(it.source)}</div>` : ""}
+              </td>
+              <td class="mono">${escapeHtml(it.weight || "0")}</td>
+              <td class="mono">${escapeHtml(it.target || "0")}</td>
+              <td>${achCellHtml}</td>
+              <td class="mono" style="font-weight:700; color:var(--primary);">${escapeHtml(it.score !== "" ? it.score : "—")}</td>
+              <td class="mono">${escapeHtml(it.supervisor_score !== "" ? it.supervisor_score : "—")}</td>
+              <td>${remParts.length ? remParts.join("") : `<span class="cell-sub">—</span>`}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      document.getElementById("perfFooterInfo").textContent =
+        `Showing ${filtered.length} of ${monthItems.length} KPI rows for ${monthObj.label}`;
+      syncPerfDirtyUi();
+    }
+
+    async function savePerfAchievements() {
+      const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
+      if (!monthObj || !monthObj.is_latest) {
+        showToast("Only the latest month allows editing Achievement.", "error");
+        return;
+      }
+      const updates = Object.keys(state.perfDrafts).map(rk => {
+        const rn = Number(rk);
+        const item = (state.perf.items || []).find(it => it.row === rn);
+        return {
+          row: rn,
+          achievement: state.perfDrafts[rn],
+          expected_description: item ? item.description : "",
+        };
+      });
+      if (!updates.length) {
+        showToast("No Achievement changes to save.", "info");
+        return;
+      }
+      const btn1 = document.getElementById("savePerfAchBtn");
+      const btn2 = document.getElementById("toolbarSavePerfBtn");
+      btn1.disabled = true;
+      btn2.disabled = true;
+      btn1.textContent = "Saving...";
+      btn2.textContent = "Saving...";
+      try {
+        const data = await apiFetch("/api/perf/achievements", {
+          method: "PUT",
+          body: JSON.stringify({
+            year: monthObj.year,
+            month: monthObj.month,
+            updates,
+          }),
+        });
+        applyBootstrap(data);
+        showToast(`Saved ${updates.length} Achievement value(s) for ${monthObj.label}!`, "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn1.disabled = false;
+        btn2.disabled = false;
+        syncPerfDirtyUi();
+      }
+    }
+
+    function openNewPerfMonthModal() {
+      const perf = state.perf || {};
+      if (!perf.has_tab) {
+        showToast("Perf Standard tab was not found in this sheet.", "error");
+        return;
+      }
+      const months = perf.months || [];
+      if (!months.length) {
+        showToast("No previous month found in Perf Standard to copy from.", "error");
+        return;
+      }
+
+      const yearSel = document.getElementById("pm_year");
+      const years = perf.years || [String(new Date().getFullYear())];
+      yearSel.innerHTML = years.map(y => `<option value="${escapeHtml(y)}">${escapeHtml(y)}</option>`).join("");
+      yearSel.value = perf.next_year || years[0];
+
+      const moSel = document.getElementById("pm_month");
+      const moNames = perf.month_names || [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+      ];
+      moSel.innerHTML = moNames.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+      moSel.value = perf.next_month || moNames[new Date().getMonth()];
+
+      const srcSel = document.getElementById("pm_source_month");
+      srcSel.innerHTML = months.map(m => `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)} (${m.row_count} items)</option>`).join("");
+      srcSel.value = perf.latest_month_key || months[0].key;
+
+      onPerfSourceChange();
+      checkPerfMonthDuplicate();
+      openModal("perfMonthModalBackdrop");
+    }
+
+    function checkPerfMonthDuplicate() {
+      const y = document.getElementById("pm_year").value;
+      const m = document.getElementById("pm_month").value;
+      const dupWarn = document.getElementById("pm_dup_warn");
+      const btn = document.getElementById("pmSubmitBtn");
+      const exists = (state.perf.months || []).find(mo => mo.year === y && mo.month.toLowerCase() === m.toLowerCase());
+      if (exists) {
+        dupWarn.textContent = `Entry for ${exists.label} already exists in Perf Standard. Select a different month or view it directly.`;
+        dupWarn.classList.remove("hidden");
+        btn.disabled = true;
+      } else {
+        dupWarn.classList.add("hidden");
+        btn.disabled = false;
+      }
+    }
+
+    function onPerfSourceChange() {
+      prefillNewPerfAchievements("copy");
+    }
+
+    function prefillNewPerfAchievements(mode) {
+      const srcKey = document.getElementById("pm_source_month").value;
+      const srcRows = (state.perf.items || [])
+        .filter(it => it.month_key === srcKey)
+        .sort((a, b) => a.row - b.row);
+      state.perfNewDrafts = srcRows.map(r => (mode === "clear" ? "" : String(r.achievement ?? "")));
+      renderPerfNewPreview(srcRows);
+    }
+
+    function updatePerfNewDraft(idx, val) {
+      state.perfNewDrafts[idx] = String(val ?? "");
+    }
+
+    function renderPerfNewPreview(srcRows) {
+      const tbody = document.getElementById("pm_preview_tbody");
+      if (!srcRows.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No source rows found.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = srcRows.map((it, idx) => {
+        const val = state.perfNewDrafts[idx] ?? "";
+        let inputHtml;
+        if (Array.isArray(it.h_options) && it.h_options.length) {
+          const opts = [`<option value=""></option>`].concat(
+            it.h_options.map(opt => `<option value="${escapeHtml(opt)}" ${String(val) === String(opt) ? "selected" : ""}>${escapeHtml(opt)}</option>`)
+          );
+          inputHtml = `<select class="perf-ach-input" style="width:100%;" onchange="updatePerfNewDraft(${idx}, this.value)">${opts.join("")}</select>`;
+        } else {
+          inputHtml = `<input type="number" step="any" min="0" class="perf-ach-input" style="width:100%;" value="${escapeHtml(val)}" oninput="updatePerfNewDraft(${idx}, this.value)" />`;
+        }
+        return `
+          <tr>
+            <td class="mono cell-sub">${idx + 1}</td>
+            <td>
+              ${it.criteria_group ? `<span class="badge badge-slate" style="margin-bottom:3px;">${escapeHtml(it.criteria_group)}</span>` : ""}
+              <div style="font-size:12px; font-weight:600;">${escapeHtml(it.description)}</div>
+            </td>
+            <td class="mono cell-sub">${escapeHtml(it.weight || "0")} / ${escapeHtml(it.target || "0")}</td>
+            <td>${inputHtml}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function submitPerfMonthForm(e) {
+      e.preventDefault();
+      const year = document.getElementById("pm_year").value;
+      const month = document.getElementById("pm_month").value;
+      const srcKey = document.getElementById("pm_source_month").value;
+      const srcMonth = (state.perf.months || []).find(m => m.key === srcKey);
+      if (!srcMonth) {
+        showToast("Please select a valid source month to copy from.", "error");
+        return;
+      }
+      const btn = document.getElementById("pmSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "Creating...";
+      try {
+        const data = await apiFetch("/api/perf/months", {
+          method: "POST",
+          body: JSON.stringify({
+            year,
+            month,
+            source_year: srcMonth.year,
+            source_month: srcMonth.month,
+            achievements: state.perfNewDrafts,
+          }),
+        });
+        applyBootstrap(data);
+        closeModal("perfMonthModalBackdrop");
+        switchTab("perf");
+        showToast(`Created Perf Standard entry for ${month} ${year} copied from ${srcMonth.label}!`, "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Create Month & Save";
+      }
     }
 
     // --- MODALS ---
@@ -2448,6 +2971,7 @@
         document.getElementById("sf_tasks_tab").value = cfg.tasks_tab || "Tasks";
         document.getElementById("sf_worklog_tab").value = cfg.worklog_tab || "Work log";
         document.getElementById("sf_data_tab").value = cfg.data_tab || "Data";
+        document.getElementById("sf_perf_tab").value = cfg.perf_tab || "Perf Standard";
         syncModeUi();
 
         const credsBanner = document.getElementById("setupCredsBanner");
@@ -2559,6 +3083,7 @@
         tasks_tab: document.getElementById("sf_tasks_tab").value,
         worklog_tab: document.getElementById("sf_worklog_tab").value,
         data_tab: document.getElementById("sf_data_tab").value,
+        perf_tab: document.getElementById("sf_perf_tab").value,
       };
     }
 
@@ -2650,6 +3175,7 @@
       document.getElementById("sf_tasks_tab").value = item.tasks_tab || "Tasks";
       document.getElementById("sf_worklog_tab").value = item.worklog_tab || "Work log";
       document.getElementById("sf_data_tab").value = item.data_tab || "Data";
+      document.getElementById("sf_perf_tab").value = item.perf_tab || "Perf Standard";
       await submitSetupForm(new Event("submit"));
     }
 
@@ -2808,6 +3334,7 @@
 
     document.getElementById("cf_date").addEventListener("input", updateCompleteTaskState);
     document.getElementById("cf_date").addEventListener("change", updateCompleteTaskState);
+    document.getElementById("perfSearch").addEventListener("input", renderPerfStandard);
 
     // Keyboard shortcuts (do not close modals on outside backdrop clicks)
 
@@ -2815,14 +3342,16 @@
       const taskOpen = document.getElementById("taskModalBackdrop").classList.contains("open");
       const wlOpen = document.getElementById("wlModalBackdrop").classList.contains("open");
       const compOpen = document.getElementById("completeModalBackdrop").classList.contains("open");
+      const perfOpen = document.getElementById("perfMonthModalBackdrop").classList.contains("open");
       const delOpen = document.getElementById("deleteModalBackdrop").classList.contains("open");
       const setupOpen = document.getElementById("setupModalBackdrop").classList.contains("open");
-      const anyOpen = taskOpen || wlOpen || compOpen || delOpen || setupOpen;
+      const anyOpen = taskOpen || wlOpen || compOpen || perfOpen || delOpen || setupOpen;
 
       if (e.key === "Escape" && anyOpen) {
         closeModal("taskModalBackdrop");
         closeModal("wlModalBackdrop");
         closeModal("completeModalBackdrop");
+        closeModal("perfMonthModalBackdrop");
         closeModal("deleteModalBackdrop");
         closeModal("setupModalBackdrop");
         return;
@@ -2831,12 +3360,15 @@
         if (taskOpen) document.getElementById("taskForm").requestSubmit();
         else if (wlOpen) document.getElementById("wlForm").requestSubmit();
         else if (compOpen) document.getElementById("completeForm").requestSubmit();
+        else if (perfOpen) document.getElementById("perfMonthForm").requestSubmit();
         else if (setupOpen) document.getElementById("setupForm").requestSubmit();
         return;
       }
       if (!anyOpen && e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
         e.preventDefault();
-        document.getElementById(state.activeTab === "tasks" ? "taskSearch" : "wlSearch").focus();
+        document.getElementById(
+          state.activeTab === "tasks" ? "taskSearch" : state.activeTab === "worklogs" ? "wlSearch" : "perfSearch"
+        ).focus();
       }
     });
 

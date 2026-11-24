@@ -12,8 +12,12 @@
   // Allows every employee to sign in with their own Google account cleanly
   // without configuring Google Cloud Console or OAuth settings.
   const DEFAULT_WEB_CLIENT_ID = "913675373531-31lq334ij94tc316ck09ortethhqlkgb.apps.googleusercontent.com";
-  const DEFAULT_TABS = { tasks: "Tasks", worklog: "Work log", data: "Data" };
-  const FALLBACK_GIDS = { tasks: 697912632, worklog: 1436624543, data: 1258735725 };
+  const DEFAULT_TABS = { tasks: "Tasks", worklog: "Work log", data: "Data", perf: "Perf Standard" };
+  const FALLBACK_GIDS = { tasks: 697912632, worklog: 1436624543, data: 1258735725, perf: 1601402663 };
+  const MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
   const TASKS_START_ROW = 9;
   const WORKLOG_START_ROW = 10;
   const SCOPES =
@@ -109,6 +113,7 @@
       tasks_tab: DEFAULT_TABS.tasks,
       worklog_tab: DEFAULT_TABS.worklog,
       data_tab: DEFAULT_TABS.data,
+      perf_tab: DEFAULT_TABS.perf,
       saved_sheets: [],
     };
     try {
@@ -301,6 +306,7 @@
       tasks_tab: cfg.tasks_tab || DEFAULT_TABS.tasks,
       worklog_tab: cfg.worklog_tab || DEFAULT_TABS.worklog,
       data_tab: cfg.data_tab || DEFAULT_TABS.data,
+      perf_tab: cfg.perf_tab || DEFAULT_TABS.perf,
     };
   }
 
@@ -426,7 +432,7 @@
     return null;
   }
 
-  async function getSheetMap(spreadsheetId, tasksTab, worklogTab, dataTab, cfg) {
+  async function getSheetMap(spreadsheetId, tasksTab, worklogTab, dataTab, cfg, perfTab = DEFAULT_TABS.perf) {
     const meta = await sheetsFetch(`/${encodeURIComponent(spreadsheetId)}?includeGridData=false`, {}, cfg);
     const sheetsList = meta.sheets || [];
     const available = sheetsList.map(s => s.properties?.title || "");
@@ -436,6 +442,7 @@
     const worklog = findSheetEntry(sheetsList, worklogTab, FALLBACK_GIDS.worklog);
     if (!worklog) throw new Error(`Could not find tab '${worklogTab}'. Available tabs: ${available.join(", ")}`);
     const data = findSheetEntry(sheetsList, dataTab, FALLBACK_GIDS.data);
+    const perf = findSheetEntry(sheetsList, perfTab, FALLBACK_GIDS.perf);
 
     return {
       spreadsheet_id: spreadsheetId,
@@ -444,6 +451,7 @@
       tasks,
       worklog,
       data,
+      perf,
     };
   }
 
@@ -536,6 +544,201 @@
     };
   }
 
+  function normalizePerfMonth(yearRaw, monthRaw) {
+    const yStr = String(yearRaw || "").trim();
+    const mStr = String(monthRaw || "").trim();
+    if (!/^\d{4}$/.test(yStr)) return null;
+    let mIdx = MONTH_NAMES.findIndex(m => m.toLowerCase() === mStr.toLowerCase());
+    if (mIdx < 0 && /^\d{1,2}$/.test(mStr)) {
+      const n = Number(mStr);
+      if (n >= 1 && n <= 12) mIdx = n - 1;
+    }
+    if (mIdx < 0) return null;
+    const monthNum = mIdx + 1;
+    const canonicalMonth = MONTH_NAMES[mIdx];
+    const key = `${yStr}-${String(monthNum).padStart(2, "0")}`;
+    return {
+      year: yStr,
+      month: canonicalMonth,
+      month_num: monthNum,
+      key,
+      label: `${canonicalMonth} ${yStr}`,
+      sort_val: Number(yStr) * 100 + monthNum,
+    };
+  }
+
+  function extractPerfYears(dataRows, monthsList) {
+    const yrs = new Set();
+    const curYear = new Date().getFullYear();
+    [curYear - 1, curYear, curYear + 1].forEach(y => yrs.add(String(y)));
+    (dataRows || []).forEach(r => {
+      const y = cell(r, 12);
+      if (/^\d{4}$/.test(y)) yrs.add(y);
+    });
+    (monthsList || []).forEach(m => {
+      if (/^\d{4}$/.test(m.year)) yrs.add(m.year);
+    });
+    return [...yrs].sort((a, b) => Number(b) - Number(a));
+  }
+
+  function parsePerfStandardData(pRows, dataRows = [], hValidations = {}, perfEntry = null) {
+    if (!perfEntry) {
+      return {
+        has_tab: false,
+        title: DEFAULT_TABS.perf,
+        max_row: 0,
+        last_row: 2,
+        years: extractPerfYears(dataRows, []),
+        month_names: [...MONTH_NAMES],
+        latest_month_key: "",
+        next_year: String(new Date().getFullYear()),
+        next_month: MONTH_NAMES[new Date().getMonth()],
+        months: [],
+        items: [],
+      };
+    }
+
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(5, pRows.length); i++) {
+      if (cell(pRows[i], 0).toLowerCase() === "year" && cell(pRows[i], 1).toLowerCase() === "month") {
+        headerIdx = i;
+        break;
+      }
+    }
+    const startOffset = headerIdx >= 0 ? headerIdx + 1 : 2;
+    let lastRow = startOffset;
+    const items = [];
+    const monthMap = new Map();
+    let activeCriteria = "";
+    let prevMkKey = "";
+
+    for (let i = startOffset; i < pRows.length; i++) {
+      const r = pRows[i] || [];
+      const rowNum = i + 1;
+      let hasContent = false;
+      for (let c = 0; c <= 11; c++) {
+        if (cell(r, c)) {
+          hasContent = true;
+          break;
+        }
+      }
+      if (!hasContent) continue;
+      lastRow = rowNum;
+
+      const mk = normalizePerfMonth(cell(r, 0), cell(r, 1));
+      if (!mk) continue;
+      if (mk.key !== prevMkKey) {
+        activeCriteria = "";
+        prevMkKey = mk.key;
+      }
+      const rawCrit = cell(r, 2);
+      if (rawCrit) activeCriteria = rawCrit;
+
+      const weight = cell(r, 5);
+      const score = cell(r, 8);
+      const supScore = cell(r, 10);
+
+      const rec = {
+        row: rowNum,
+        year: mk.year,
+        month: mk.month,
+        month_num: mk.month_num,
+        month_key: mk.key,
+        month_label: mk.label,
+        criteria: rawCrit,
+        criteria_group: activeCriteria,
+        description: cell(r, 3),
+        source: cell(r, 4),
+        weight,
+        target: cell(r, 6),
+        achievement: cell(r, 7),
+        score,
+        remarks: cell(r, 9),
+        supervisor_score: supScore,
+        supervisor_remarks: cell(r, 11),
+        sf: cell(r, 12),
+        h_options: hValidations[rowNum] || [],
+      };
+      items.push(rec);
+
+      if (!monthMap.has(mk.key)) {
+        monthMap.set(mk.key, {
+          key: mk.key,
+          year: mk.year,
+          month: mk.month,
+          month_num: mk.month_num,
+          label: mk.label,
+          sort_val: mk.sort_val,
+          start_row: rowNum,
+          end_row: rowNum,
+          row_count: 0,
+          total_weight: 0,
+          self_score: 0,
+          supervisor_score: 0,
+          net_score: 0,
+          is_latest: false,
+        });
+      }
+      const m = monthMap.get(mk.key);
+      m.start_row = Math.min(m.start_row, rowNum);
+      m.end_row = Math.max(m.end_row, rowNum);
+      m.row_count += 1;
+      m.total_weight += Number(weight) || 0;
+      m.self_score += Number(score) || 0;
+      m.supervisor_score += Number(supScore) || 0;
+      m.net_score = Math.round((m.self_score + m.supervisor_score) * 100) / 100;
+    }
+
+    const months = [...monthMap.values()].sort((a, b) => b.sort_val - a.sort_val);
+    months.forEach(m => {
+      m.total_weight = Math.round(m.total_weight * 100) / 100;
+      m.self_score = Math.round(m.self_score * 100) / 100;
+      m.supervisor_score = Math.round(m.supervisor_score * 100) / 100;
+      m.net_score = Math.round((m.self_score + m.supervisor_score) * 100) / 100;
+    });
+    if (months.length) months[0].is_latest = true;
+
+    const latest = months[0] || null;
+    let nextYear = String(new Date().getFullYear());
+    let nextMonth = MONTH_NAMES[new Date().getMonth()];
+    if (latest) {
+      if (latest.month_num === 12) {
+        nextYear = String(Number(latest.year) + 1);
+        nextMonth = MONTH_NAMES[0];
+      } else {
+        nextYear = latest.year;
+        nextMonth = MONTH_NAMES[latest.month_num];
+      }
+    }
+
+    return {
+      has_tab: true,
+      title: perfEntry.title,
+      max_row: perfEntry.rowCount,
+      last_row: lastRow,
+      years: extractPerfYears(dataRows, months),
+      month_names: [...MONTH_NAMES],
+      latest_month_key: latest ? latest.key : "",
+      next_year: nextYear,
+      next_month: nextMonth,
+      months,
+      items,
+    };
+  }
+
+  function validatePerfAchievementVal(rawVal, hOptions = [], desc = "") {
+    const s = rawVal == null ? "" : String(rawVal).trim();
+    if (s === "") return "";
+    if (Array.isArray(hOptions) && hOptions.length > 0 && !hOptions.includes(s)) {
+      throw new Error(`Achievement for '${desc || "row"}' must be one of: ${hOptions.join(", ")}.`);
+    }
+    const n = Number(s);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error(`Achievement for '${desc || "row"}' must be a valid non-negative number.`);
+    }
+    return formatNumCell(n);
+  }
+
   function buildSetupPayload(cfg, sheetUrl = "") {
     const cid = resolveClientId(cfg.client_id);
     const mode = cfg.auth_mode || "oauth";
@@ -553,6 +756,7 @@
       tasks_tab: cfg.tasks_tab || DEFAULT_TABS.tasks,
       worklog_tab: cfg.worklog_tab || DEFAULT_TABS.worklog,
       data_tab: cfg.data_tab || DEFAULT_TABS.data,
+      perf_tab: cfg.perf_tab || DEFAULT_TABS.perf,
       sync_md_default: false,
       saved_sheets: cfg.saved_sheets || [],
       has_credentials: mode === "oauth" ? Boolean(cid) : Boolean(cfg.gas_url),
@@ -590,6 +794,7 @@
       dropdowns: extractDropdowns([], []),
       tasks: [],
       worklogs: [],
+      perf: parsePerfStandardData([], [], {}, null),
     };
   }
 
@@ -621,7 +826,7 @@
       return resp;
     }
 
-    const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
+    const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab);
     const tTitle = quoteSheet(smap.tasks.title);
     const wTitle = quoteSheet(smap.worklog.title);
     const tMax = smap.tasks.rowCount;
@@ -632,14 +837,17 @@
     params.append("ranges", `${tTitle}!A${TASKS_START_ROW}:Z${tMax}`);
     params.append("ranges", `${wTitle}!A${WORKLOG_START_ROW}:G${wMax}`);
     if (smap.data) params.append("ranges", `${quoteSheet(smap.data.title)}!A1:O45`);
+    if (smap.perf) params.append("ranges", `${quoteSheet(smap.perf.title)}!A1:M${smap.perf.rowCount}`);
     params.set("valueRenderOption", "FORMATTED_VALUE");
 
     const res = await sheetsFetch(`/${encodeURIComponent(sid)}/values:batchGet?${params.toString()}`, {}, cfg);
     const vrs = res.valueRanges || [];
-    const metaRows = vrs[0]?.values || [];
-    const tRows = vrs[1]?.values || [];
-    const wRows = vrs[2]?.values || [];
-    const dRows = vrs[3]?.values || [];
+    let vrIdx = 0;
+    const metaRows = vrs[vrIdx++]?.values || [];
+    const tRows = vrs[vrIdx++]?.values || [];
+    const wRows = vrs[vrIdx++]?.values || [];
+    const dRows = smap.data ? (vrs[vrIdx++]?.values || []) : [];
+    const pRows = smap.perf ? (vrs[vrIdx++]?.values || []) : [];
 
     const r5 = metaRows[0] || [];
     const r6 = metaRows[1] || [];
@@ -677,6 +885,10 @@
     setupInfo.tasks_tab = smap.tasks.title;
     setupInfo.worklog_tab = smap.worklog.title;
     setupInfo.data_tab = smap.data ? smap.data.title : cfg.data_tab;
+    setupInfo.perf_tab = smap.perf ? smap.perf.title : cfg.perf_tab;
+
+    const hValidations = await fetchPerfHValidations(sid, smap.perf, pRows, cfg);
+    const perfData = parsePerfStandardData(pRows, dRows, hValidations, smap.perf);
 
     return {
       needs_setup: false,
@@ -704,7 +916,43 @@
       dropdowns: extractDropdowns(dRows, worklogs),
       tasks,
       worklogs,
+      perf: perfData,
     };
+  }
+
+  async function fetchPerfHValidations(sid, perfEntry, pRows, cfg) {
+    if (!perfEntry || !pRows || !pRows.length) return {};
+    let lastRow = 2;
+    for (let i = 0; i < pRows.length; i++) {
+      const r = pRows[i] || [];
+      for (let c = 0; c <= 11; c++) {
+        if (cell(r, c)) {
+          lastRow = i + 1;
+          break;
+        }
+      }
+    }
+    if (lastRow < 3) return {};
+    try {
+      const qp = quoteSheet(perfEntry.title);
+      const grid = await sheetsFetch(
+        `/${encodeURIComponent(sid)}?ranges=${encodeURIComponent(`${qp}!H3:H${lastRow}`)}&fields=sheets.data.rowData.values.dataValidation`,
+        {},
+        cfg
+      );
+      const rowData = grid?.sheets?.[0]?.data?.[0]?.rowData || [];
+      const out = {};
+      rowData.forEach((rd, idx) => {
+        const dv = rd?.values?.[0]?.dataValidation;
+        if (dv?.condition?.type === "ONE_OF_LIST") {
+          const vals = (dv.condition.values || []).map(v => String(v?.userEnteredValue ?? "").trim()).filter(Boolean);
+          if (vals.length) out[3 + idx] = vals;
+        }
+      });
+      return out;
+    } catch (_) {
+      return {};
+    }
   }
 
   function validateAndPrepareTask(payload) {
@@ -848,6 +1096,7 @@
     const tasksTab = String(payload.tasks_tab || DEFAULT_TABS.tasks).trim() || DEFAULT_TABS.tasks;
     const worklogTab = String(payload.worklog_tab || DEFAULT_TABS.worklog).trim() || DEFAULT_TABS.worklog;
     const dataTab = String(payload.data_tab || DEFAULT_TABS.data).trim() || DEFAULT_TABS.data;
+    const perfTab = String(payload.perf_tab || DEFAULT_TABS.perf).trim() || DEFAULT_TABS.perf;
 
     if (authMode !== "oauth") {
       const gasUrl = validateGasUrl(payload.gas_url);
@@ -860,6 +1109,7 @@
         tasks_tab: tasksTab,
         worklog_tab: worklogTab,
         data_tab: dataTab,
+        perf_tab: perfTab,
       });
       return { ...info, auth_mode: "gas", gas_url: gasUrl, gas_pin: pin, sheet_url: sheetUrl };
     }
@@ -868,7 +1118,7 @@
     const clientId = resolveClientId(payload.client_id || cfg.client_id);
     await ensureAccessToken(clientId, false);
     const probeCfg = { ...cfg, auth_mode: "oauth", client_id: clientId };
-    const smap = await getSheetMap(sid, tasksTab, worklogTab, dataTab, probeCfg);
+    const smap = await getSheetMap(sid, tasksTab, worklogTab, dataTab, probeCfg, perfTab);
     const qt = quoteSheet(smap.tasks.title);
     const meta = await sheetsFetch(
       `/${encodeURIComponent(sid)}/values/${encodeURIComponent(`${qt}!A5:C7`)}?valueRenderOption=FORMATTED_VALUE`,
@@ -894,6 +1144,7 @@
       tasks_tab: smap.tasks.title,
       worklog_tab: smap.worklog.title,
       data_tab: smap.data ? smap.data.title : "",
+      perf_tab: smap.perf ? smap.perf.title : "",
       available_tabs: smap.available_tabs,
       url,
       user_email: userEmail,
@@ -935,6 +1186,7 @@
       cfg.tasks_tab = info.tasks_tab;
       cfg.worklog_tab = info.worklog_tab;
       cfg.data_tab = info.data_tab || DEFAULT_TABS.data;
+      cfg.perf_tab = info.perf_tab || DEFAULT_TABS.perf;
       upsertSavedSheet(cfg, {
         auth_mode: cfg.auth_mode,
         gas_url: cfg.gas_url || "",
@@ -947,6 +1199,7 @@
         tasks_tab: info.tasks_tab,
         worklog_tab: info.worklog_tab,
         data_tab: cfg.data_tab,
+        perf_tab: cfg.perf_tab,
         url: info.url || "",
       });
       saveBrowserConfig(cfg);
@@ -1022,6 +1275,20 @@
       }
       if (mWl && method === "DELETE") {
         const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "delete_worklog", row: Number(mWl[1]) });
+        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
+          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
+        });
+        return res;
+      }
+      if (url === "/api/perf/months" && method === "POST") {
+        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "create_perf_month" });
+        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
+          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
+        });
+        return res;
+      }
+      if (url === "/api/perf/achievements" && method === "PUT") {
+        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "update_perf_achievements" });
         res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
           mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
         });
@@ -1229,6 +1496,173 @@
       const data = await fetchBootstrapData(cfg);
       data.deleted_row = rowNum;
       return data;
+    }
+
+    if (url === "/api/perf/months" && method === "POST") {
+      const targetMk = normalizePerfMonth(payload.year, payload.month);
+      if (!targetMk) throw new Error("Valid 4-digit Year and Month name are required.");
+      const srcMk = normalizePerfMonth(payload.source_year, payload.source_month);
+      if (!srcMk) throw new Error("Source Year and Month to copy from are required.");
+
+      const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab);
+      if (!smap.perf) throw new Error(`Tab '${cfg.perf_tab || DEFAULT_TABS.perf}' was not found in this Google Sheet.`);
+      const qp = quoteSheet(smap.perf.title);
+      const pMax = smap.perf.rowCount;
+      const pRes = await sheetsFetch(
+        `/${encodeURIComponent(cfg.spreadsheet_id)}/values/${encodeURIComponent(`${qp}!A1:M${pMax}`)}?valueRenderOption=FORMATTED_VALUE`,
+        {},
+        cfg
+      );
+      const pRows = pRes.values || [];
+      const hVals = await fetchPerfHValidations(cfg.spreadsheet_id, smap.perf, pRows, cfg);
+      const perfState = parsePerfStandardData(pRows, [], hVals, smap.perf);
+
+      if (perfState.months.some(m => m.key === targetMk.key)) {
+        const err = new Error(`Perf Standard entry for ${targetMk.label} already exists. View it from the Month selector.`);
+        err.status = 409;
+        throw err;
+      }
+      const srcRows = perfState.items.filter(it => it.month_key === srcMk.key).sort((a, b) => a.row - b.row);
+      if (!srcRows.length) throw new Error(`No rows found for source month ${srcMk.label}.`);
+
+      const dstStart = perfState.last_row + 1;
+      const dstEnd = dstStart + srcRows.length - 1;
+      const batchRequests = [];
+      if (dstEnd > pMax) {
+        batchRequests.push({
+          appendDimension: {
+            sheetId: smap.perf.sheetId,
+            dimension: "ROWS",
+            length: Math.max(100, dstEnd - pMax),
+          },
+        });
+      }
+
+      // Group contiguous source rows so formulas & validations shift cleanly via PASTE_NORMAL
+      let runStart = srcRows[0].row;
+      let runPrev = srcRows[0].row;
+      let runDstStart = dstStart;
+      for (let idx = 1; idx <= srcRows.length; idx++) {
+        const curRow = idx < srcRows.length ? srcRows[idx].row : null;
+        if (curRow === runPrev + 1) {
+          runPrev = curRow;
+          continue;
+        }
+        const runLen = runPrev - runStart + 1;
+        batchRequests.push({
+          copyPaste: {
+            source: {
+              sheetId: smap.perf.sheetId,
+              startRowIndex: runStart - 1,
+              endRowIndex: runPrev,
+              startColumnIndex: 0,
+              endColumnIndex: 13,
+            },
+            destination: {
+              sheetId: smap.perf.sheetId,
+              startRowIndex: runDstStart - 1,
+              endRowIndex: runDstStart - 1 + runLen,
+              startColumnIndex: 0,
+              endColumnIndex: 13,
+            },
+            pasteType: "PASTE_NORMAL",
+          },
+        });
+        if (curRow !== null) {
+          runDstStart += runLen;
+          runStart = curRow;
+          runPrev = curRow;
+        }
+      }
+
+      await sheetsFetch(`/${encodeURIComponent(cfg.spreadsheet_id)}:batchUpdate`, {
+        method: "POST",
+        body: JSON.stringify({ requests: batchRequests }),
+      }, cfg);
+
+      const providedAch = Array.isArray(payload.achievements) ? payload.achievements : null;
+      const yearNum = Number(targetMk.year);
+      const abValues = [];
+      const hValues = [];
+      const jlClearValues = [];
+      srcRows.forEach((src, i) => {
+        abValues.push([Number.isFinite(yearNum) ? yearNum : targetMk.year, targetMk.month]);
+        const rawAch = providedAch && i < providedAch.length ? providedAch[i] : "";
+        hValues.push([validatePerfAchievementVal(rawAch, src.h_options, src.description)]);
+        jlClearValues.push(["", "", ""]);
+      });
+
+      await sheetsFetch(`/${encodeURIComponent(cfg.spreadsheet_id)}/values:batchUpdate`, {
+        method: "POST",
+        body: JSON.stringify({
+          valueInputOption: "USER_ENTERED",
+          data: [
+            { range: `${qp}!A${dstStart}:B${dstEnd}`, values: abValues },
+            { range: `${qp}!H${dstStart}:H${dstEnd}`, values: hValues },
+            { range: `${qp}!J${dstStart}:L${dstEnd}`, values: jlClearValues },
+          ],
+        }),
+      }, cfg);
+
+      const data = await fetchBootstrapData(cfg);
+      data.created_month_key = targetMk.key;
+      return data;
+    }
+
+    if (url === "/api/perf/achievements" && method === "PUT") {
+      const targetMk = normalizePerfMonth(payload.year, payload.month);
+      if (!targetMk) throw new Error("Valid Year and Month are required.");
+      const updatesList = Array.isArray(payload.updates) ? payload.updates : [];
+      if (!updatesList.length) throw new Error("At least one Achievement update is required.");
+
+      const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab);
+      if (!smap.perf) throw new Error(`Tab '${cfg.perf_tab || DEFAULT_TABS.perf}' was not found in this Google Sheet.`);
+      const qp = quoteSheet(smap.perf.title);
+      const pMax = smap.perf.rowCount;
+      const pRes = await sheetsFetch(
+        `/${encodeURIComponent(cfg.spreadsheet_id)}/values/${encodeURIComponent(`${qp}!A1:M${pMax}`)}?valueRenderOption=FORMATTED_VALUE`,
+        {},
+        cfg
+      );
+      const pRows = pRes.values || [];
+      const hVals = await fetchPerfHValidations(cfg.spreadsheet_id, smap.perf, pRows, cfg);
+      const perfState = parsePerfStandardData(pRows, [], hVals, smap.perf);
+
+      const monthObj = perfState.months.find(m => m.key === targetMk.key);
+      if (!monthObj) throw new Error(`Perf Standard month ${targetMk.label} was not found.`);
+      if (monthObj.key !== perfState.latest_month_key) {
+        const latestObj = perfState.months[0];
+        throw new Error(`Past months are view-only. Only the latest month (${latestObj ? latestObj.label : perfState.latest_month_key}) can edit Achievement.`);
+      }
+
+      const byRow = new Map();
+      perfState.items.filter(it => it.month_key === monthObj.key).forEach(it => byRow.set(it.row, it));
+
+      const dataUpdates = [];
+      for (const u of updatesList) {
+        const rn = Number(u.row);
+        const rec = byRow.get(rn);
+        if (!rec) {
+          const err = new Error(`Row ${rn} does not belong to ${monthObj.label}. Refreshing latest data.`);
+          err.status = 409;
+          throw err;
+        }
+        if (u.expected_description !== undefined && rec.description !== String(u.expected_description).trim()) {
+          const err = new Error(`Perf Standard row ${rn} changed externally. Refreshing latest data.`);
+          err.status = 409;
+          throw err;
+        }
+        const cleaned = validatePerfAchievementVal(u.achievement, rec.h_options, rec.description);
+        // Strictly update ONLY Column H (Achievement)
+        dataUpdates.push({ range: `${qp}!H${rn}`, values: [[cleaned]] });
+      }
+
+      await sheetsFetch(`/${encodeURIComponent(cfg.spreadsheet_id)}/values:batchUpdate`, {
+        method: "POST",
+        body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: dataUpdates }),
+      }, cfg);
+
+      return await fetchBootstrapData(cfg);
     }
 
     throw new Error(`Unsupported API request: ${method} ${url}`);

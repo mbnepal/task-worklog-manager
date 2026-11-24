@@ -17,8 +17,11 @@ Works in **two modes** using the same interface:
   - **Formula-Safe Operations:** Never overwrites sheet-wide `ARRAYFORMULA` columns (`A`, `N`, `P`, `V`, `W`). Deleting a row shifts subsequent rows' editable cells upward and clears the bottom row instead of using `deleteDimension`, preserving row-9 `ARRAYFORMULA`s, `V7`/`W7` checks, data validations, and `Report` tab `VLOOKUP`s.
   - **Live Dropdowns & Validation Preview:** Reads staff, departments, priorities, and difficulty options from the `Data` tab (with built-in fallbacks if `Data` is absent) and previews `Check for Employee` (`V`) requirements before saving.
 - **Work Log Tab (`Work log`)**
-  - Create, edit, 1-click status toggle (`On-going` / `Complete`), duplicate, and safely delete daily work log entries across `B:G`.
+  - Create, edit, quick-complete (with editable date & time dialog), duplicate, and safely delete daily work log entries across `B:G`.
   - Quick duration chips (`15m`–`240m`), project autocomplete from existing records, date range presets, and `Work_Log_History.md` export/sync.
+- **Perf Standard Tab (`Perf Standard`)**
+  - View historical months read-only via the Month selector, or click **+ New Month** to copy KPI structure, weights, targets, Score formulas (`Col I`), `SF` (`Col M`), and dropdown validations from any previous month (`PASTE_NORMAL`), clearing old remarks and supervisor scores (`J:L`).
+  - Strictly locks all columns except **Achievement (`Col H`)** on the current/latest month (respecting `ONE_OF_LIST` validations where configured).
 - **Conflict Protection**
   - Detects external edits before `PUT` / `DELETE` and refreshes the UI instead of overwriting changed rows.
 
