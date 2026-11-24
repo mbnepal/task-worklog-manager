@@ -29,12 +29,19 @@ class FakeSheetsMemory:
                 {"properties": {"sheetId": 202, "title": "Work log", "gridProperties": {"rowCount": 998, "columnCount": 7}}},
                 {"properties": {"sheetId": 303, "title": "Data", "gridProperties": {"rowCount": 1000, "columnCount": 29}}},
                 {"properties": {"sheetId": 404, "title": "Perf Standard", "gridProperties": {"rowCount": 200, "columnCount": 26}}},
+                {"properties": {"sheetId": 505, "title": "Report", "gridProperties": {"rowCount": 40, "columnCount": 6}}},
             ],
         }
         self.cells = {}
         self.written_ranges = []
         self.batch_requests = []
         self.perf_h_dv = {}
+        self.report_formats = {}
+        self.report_hidden_rows = set()
+        self.report_hidden_cols = set()
+        self.report_merges = []
+        self.report_col_widths = {}
+        self.report_row_heights = {}
 
         self.set_row("Data", 1, ["Sn.", "HR ID", "Staff Name", "Email", "Designation", "Department", "", "", "On Schedule", "Department", "January", "01", "2025", "Low", "Very Difficult"])
         self.set_row("Data", 2, ["1", "10", "Alice Example", "", "Programmer", "Programming", "", "", "Behind Schedule", "Management", "February", "02", "2026", "Medium", "Difficult"])
@@ -65,6 +72,34 @@ class FakeSheetsMemory:
         self.set_row("Work log", 10, ["1", "11/19/26", "WL One", "Project Alpha", "30", "Complete", "Note 1"])
         self.set_row("Work log", 11, ["2", "11/20/26", "WL Two", "Project Beta", "60", "On-going", "Note 2"])
         self.set_cell("Work log", 12, 1, "3")
+
+        # Seed Report tab (rows 1..4 with values, row 2 hidden, row 5 bordered signature)
+        self.set_row("Report", 1, ["Monthly Employee Performance Report", "", "", ""])
+        self.set_row("Report", 2, ["Hidden Helper", "Secret Note", "", ""])
+        self.set_row("Report", 3, ["Employee", "Alice Example", "Score", "95%"])
+        self.set_row("Report", 4, ["Summary", "On track", "", "Approved"])
+        self.report_hidden_rows = {2}
+        self.report_merges = [{"startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 4}]
+        self.report_col_widths = {1: 140, 2: 200, 3: 110, 4: 120}
+        self.report_row_heights = {1: 32, 3: 24, 5: 28}
+        self.report_formats[(1, 1)] = {
+            "backgroundColor": {"red": 0.1, "green": 0.2, "blue": 0.6},
+            "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}, "bold": True, "fontSize": 14},
+            "horizontalAlignment": "CENTER",
+            "verticalAlignment": "MIDDLE",
+            "borders": {"top": {"style": "SOLID"}, "left": {"style": "SOLID"}, "bottom": {"style": "SOLID"}},
+        }
+        self.report_formats[(1, 4)] = {
+            "borders": {"right": {"style": "SOLID_MEDIUM"}, "bottom": {"style": "SOLID"}},
+        }
+        self.report_formats[(3, 4)] = {
+            "horizontalAlignment": "RIGHT",
+            "textFormat": {"bold": True},
+            "wrapStrategy": "WRAP",
+        }
+        self.report_formats[(5, 1)] = {
+            "borders": {"bottom": {"style": "DASHED"}},
+        }
 
     def set_cell(self, sheet, r, c, val):
         self.cells[(sheet, r, c)] = val
@@ -130,17 +165,51 @@ class FakeSheetsMemory:
 
         class SpreadsheetsAPI:
             def get(self, spreadsheetId, includeGridData=False, ranges=None, fields=None):
-                if ranges and fields and "Perf Standard" in ranges[0]:
-                    sheet_title, r1, _c1, r2, _c2 = mem.parse_a1(ranges[0])
-                    row_data = []
-                    for rn in range(r1, r2 + 1):
-                        opts = mem.perf_h_dv.get((sheet_title, rn), [])
-                        if opts:
-                            dv = {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in opts]}}
-                            row_data.append({"values": [{"dataValidation": dv}]})
-                        else:
-                            row_data.append({"values": [{}]})
-                    return FakeExecute({"sheets": [{"data": [{"rowData": row_data}]}]})
+                if ranges and fields:
+                    sheet_title, r1, c1, r2, c2 = mem.parse_a1(ranges[0])
+                    if "Perf Standard" in sheet_title:
+                        row_data = []
+                        for rn in range(r1, r2 + 1):
+                            opts = mem.perf_h_dv.get((sheet_title, rn), [])
+                            if opts:
+                                dv = {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in opts]}}
+                                row_data.append({"values": [{"dataValidation": dv}]})
+                            else:
+                                row_data.append({"values": [{}]})
+                        return FakeExecute({"sheets": [{"data": [{"rowData": row_data}]}]})
+                    if sheet_title == "Report":
+                        row_data = []
+                        row_meta = []
+                        for rn in range(r1, r2 + 1):
+                            row_vals = []
+                            for cn in range(c1, c2 + 1):
+                                val = mem.cells.get((sheet_title, rn, cn), "")
+                                cell_d = {"formattedValue": "" if val is None else str(val)}
+                                if (rn, cn) in mem.report_formats:
+                                    cell_d["effectiveFormat"] = mem.report_formats[(rn, cn)]
+                                row_vals.append(cell_d)
+                            row_data.append({"values": row_vals})
+                            row_meta.append({
+                                "hiddenByUser": rn in mem.report_hidden_rows,
+                                "pixelSize": mem.report_row_heights.get(rn, 21),
+                            })
+                        col_meta = [
+                            {
+                                "hiddenByUser": cn in mem.report_hidden_cols,
+                                "pixelSize": mem.report_col_widths.get(cn, 100),
+                            }
+                            for cn in range(c1, c2 + 1)
+                        ]
+                        return FakeExecute({
+                            "sheets": [{
+                                "data": [{
+                                    "rowData": row_data,
+                                    "rowMetadata": row_meta,
+                                    "columnMetadata": col_meta,
+                                }],
+                                "merges": list(mem.report_merges),
+                            }]
+                        })
                 return FakeExecute(mem.meta)
 
             def batchUpdate(self, spreadsheetId, body):
@@ -483,6 +552,66 @@ class TaskWorklogTests(unittest.TestCase):
             with self.assertRaises(twm.ApiError) as sup_only2:
                 twm.update_perf_supervisor_remarks({"year": "2026", "month": "October", "updates": [{"row": 6, "supervisor_remarks": "Blocked"}]})
             self.assertEqual(sup_only2.exception.status, 403)
+
+    def test_report_tab_view_only_and_formatting(self):
+        with patch.object(twm, "get_sheets_service", return_value=self.svc):
+            boot = twm.apply_setup({
+                "sheet_url": "1SampleSheetId1234567890abcdef",
+                "role_mode": "employee",
+            })
+            self.assertTrue(boot["report"]["has_tab"])
+            self.assertEqual(boot["report"]["sheet_id"], 505)
+            self.assertIn("format=pdf&gid=505", boot["report"]["export_pdf_base"])
+            self.assertIn("gid=505", boot["report"]["sheet_url"])
+
+            self.mem.written_ranges.clear()
+            self.mem.batch_requests.clear()
+            rep = twm.fetch_report_data()
+            self.assertTrue(rep["has_tab"])
+            self.assertFalse(rep["empty"])
+            # Row 2 is hidden -> rows returned: [row1, row3, row4, row5(bordered)]
+            self.assertEqual(len(rep["rows"]), 4)
+            flat_texts = [c["v"] for row in rep["rows"] for c in row if c["v"]]
+            self.assertNotIn("Hidden Helper", flat_texts)
+            self.assertEqual(rep["merges"], [{"r": 0, "c": 0, "rs": 1, "cs": 4}])
+
+            title_cell = rep["rows"][0][0]
+            self.assertEqual(title_cell["v"], "Monthly Employee Performance Report")
+            self.assertEqual(title_cell["bg"], "#1a3399")
+            self.assertEqual(title_cell["fg"], "#ffffff")
+            self.assertEqual(title_cell["b"], 1)
+            self.assertEqual(title_cell["fs"], 14)
+            self.assertEqual(title_cell["ha"], "c")
+            self.assertEqual(title_cell["va"], "m")
+            self.assertEqual(title_cell["br"], "2px solid #000000")
+            self.assertEqual(title_cell["bb"], "1px solid #000000")
+
+            score_cell = rep["rows"][1][3]
+            self.assertEqual(score_cell["v"], "95%")
+            self.assertEqual(score_cell["ha"], "r")
+            self.assertEqual(score_cell["w"], 1)
+
+            sig_cell = rep["rows"][3][0]
+            self.assertEqual(sig_cell["bb"], "1px dashed #000000")
+            self.assertEqual(self.mem.written_ranges, [])
+            self.assertEqual(self.mem.batch_requests, [])
+
+            # Works identically as read-only view in Supervision mode
+            twm.apply_setup({
+                "sheet_url": "1SampleSheetId1234567890abcdef",
+                "role_mode": "supervisor",
+            })
+            rep_sup = twm.fetch_report_data()
+            self.assertFalse(rep_sup["empty"])
+            self.assertEqual(len(rep_sup["rows"]), 4)
+            self.assertEqual(self.mem.written_ranges, [])
+
+            # Missing Report tab degrades cleanly
+            self.mem.meta["sheets"] = [s for s in self.mem.meta["sheets"] if s["properties"]["title"] != "Report"]
+            rep_missing = twm.fetch_report_data()
+            self.assertFalse(rep_missing["has_tab"])
+            self.assertTrue(rep_missing["empty"])
+            self.assertEqual(rep_missing["rows"], [])
 
 
 if __name__ == "__main__":

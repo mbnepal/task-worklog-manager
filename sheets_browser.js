@@ -11,8 +11,8 @@
   // Allows every employee to sign in with their own Google account cleanly
   // without configuring Google Cloud Console or OAuth settings.
   const DEFAULT_WEB_CLIENT_ID = "913675373531-31lq334ij94tc316ck09ortethhqlkgb.apps.googleusercontent.com";
-  const DEFAULT_TABS = { tasks: "Tasks", worklog: "Work log", data: "Data", perf: "Perf Standard" };
-  const FALLBACK_GIDS = { tasks: 697912632, worklog: 1436624543, data: 1258735725, perf: 1601402663 };
+  const DEFAULT_TABS = { tasks: "Tasks", worklog: "Work log", data: "Data", perf: "Perf Standard", report: "Report" };
+  const FALLBACK_GIDS = { tasks: 697912632, worklog: 1436624543, data: 1258735725, perf: 1601402663, report: 1670557126 };
   const MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -134,6 +134,7 @@
       worklog_tab: DEFAULT_TABS.worklog,
       data_tab: DEFAULT_TABS.data,
       perf_tab: DEFAULT_TABS.perf,
+      report_tab: DEFAULT_TABS.report,
       saved_sheets: [],
     };
     let migrated = false;
@@ -431,7 +432,15 @@
     return null;
   }
 
-  async function getSheetMap(spreadsheetId, tasksTab, worklogTab, dataTab, cfg, perfTab = DEFAULT_TABS.perf) {
+  async function getSheetMap(
+    spreadsheetId,
+    tasksTab,
+    worklogTab,
+    dataTab,
+    cfg,
+    perfTab = DEFAULT_TABS.perf,
+    reportTab = DEFAULT_TABS.report
+  ) {
     const meta = await sheetsFetch(`/${encodeURIComponent(spreadsheetId)}?includeGridData=false`, {}, cfg);
     const sheetsList = meta.sheets || [];
     const available = sheetsList.map(s => s.properties?.title || "");
@@ -442,6 +451,7 @@
     if (!worklog) throw new Error(`Could not find tab '${worklogTab}'. Available tabs: ${available.join(", ")}`);
     const data = findSheetEntry(sheetsList, dataTab, FALLBACK_GIDS.data);
     const perf = findSheetEntry(sheetsList, perfTab, FALLBACK_GIDS.perf);
+    const report = findSheetEntry(sheetsList, reportTab, FALLBACK_GIDS.report);
 
     return {
       spreadsheet_id: spreadsheetId,
@@ -451,6 +461,7 @@
       worklog,
       data,
       perf,
+      report,
     };
   }
 
@@ -748,6 +759,267 @@
     return formatNumCell(n);
   }
 
+  const REPORT_GRID_FIELDS =
+    "sheets(properties(sheetId,title,gridProperties),merges," +
+    "data(startRow,startColumn,rowMetadata(pixelSize,hiddenByUser)," +
+    "columnMetadata(pixelSize,hiddenByUser)," +
+    "rowData.values(formattedValue,effectiveFormat(backgroundColor,backgroundColorStyle," +
+    "textFormat(bold,italic,fontSize,foregroundColor,foregroundColorStyle)," +
+    "horizontalAlignment,verticalAlignment,wrapStrategy,borders(top,bottom,left,right)))))";
+
+  function colToLetters(colNum) {
+    let n = Math.max(1, Number(colNum) || 1);
+    let out = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      n = Math.floor((n - 1) / 26);
+      out = String.fromCharCode(65 + rem) + out;
+    }
+    return out;
+  }
+
+  function rgbToCss(colorObj, styleObj, defaultHex = "") {
+    const src = (styleObj && styleObj.rgbColor) || colorObj;
+    if (!src || typeof src !== "object") return defaultHex;
+    const toByte = v => Math.max(0, Math.min(255, Math.round((Number(v) || 0) * 255)));
+    const hex = n => n.toString(16).padStart(2, "0");
+    return `#${hex(toByte(src.red))}${hex(toByte(src.green))}${hex(toByte(src.blue))}`;
+  }
+
+  function borderToCss(borderObj) {
+    if (!borderObj || typeof borderObj !== "object") return "";
+    const style = String(borderObj.style || "").toUpperCase();
+    if (!style || style === "NONE") return "";
+    const widthStyle = {
+      SOLID: "1px solid",
+      SOLID_MEDIUM: "2px solid",
+      SOLID_THICK: "3px solid",
+      DASHED: "1px dashed",
+      DOTTED: "1px dotted",
+      DOUBLE: "3px double",
+    }[style] || "1px solid";
+    const color = rgbToCss(borderObj.color, borderObj.colorStyle, "#000000");
+    return `${widthStyle} ${color}`;
+  }
+
+  function buildReportMeta(sid, reportEntry, reportTab = DEFAULT_TABS.report) {
+    if (!reportEntry) {
+      return {
+        has_tab: false,
+        title: reportTab || DEFAULT_TABS.report,
+        sheet_id: null,
+        row_count: 0,
+        col_count: 0,
+        sheet_url: "",
+        export_pdf_base: "",
+      };
+    }
+    const gid = reportEntry.sheetId;
+    const sheetUrl =
+      gid != null
+        ? `https://docs.google.com/spreadsheets/d/${sid}/edit?gid=${gid}#gid=${gid}`
+        : `https://docs.google.com/spreadsheets/d/${sid}/edit`;
+    const exportPdfBase =
+      gid != null
+        ? `https://docs.google.com/spreadsheets/d/${sid}/export?format=pdf&gid=${gid}`
+        : `https://docs.google.com/spreadsheets/d/${sid}/export?format=pdf`;
+    return {
+      has_tab: true,
+      title: reportEntry.title || DEFAULT_TABS.report,
+      sheet_id: gid,
+      row_count: reportEntry.rowCount || 0,
+      col_count: reportEntry.columnCount || 0,
+      sheet_url: sheetUrl,
+      export_pdf_base: exportPdfBase,
+    };
+  }
+
+  function findLastReportValBounds(valRows, maxCols) {
+    let lastR = 0;
+    let lastC = 0;
+    (valRows || []).forEach((r, idx) => {
+      const limit = Math.min((r || []).length, maxCols);
+      for (let c = 0; c < limit; c++) {
+        if (r[c] != null && String(r[c]).trim() !== "") {
+          lastR = Math.max(lastR, idx + 1);
+          lastC = Math.max(lastC, c + 1);
+        }
+      }
+    });
+    return { lastR, lastC };
+  }
+
+  function parseReportGridData(sheetPayload, lastValR, lastValC, maxCols, reportMeta) {
+    if (!reportMeta.has_tab) {
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+    }
+    const sheetObj = sheetPayload?.sheets?.[0] || {};
+    const gridData = sheetObj?.data?.[0] || {};
+    const rowData = gridData.rowData || [];
+    const rowMeta = gridData.rowMetadata || [];
+    const colMeta = gridData.columnMetadata || [];
+    const rawMerges = sheetObj.merges || [];
+
+    if (lastValR <= 0 && !rawMerges.length) {
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+    }
+
+    let usedRows = Math.max(lastValR, 1);
+    let usedCols = Math.max(lastValC, 1);
+
+    rawMerges.forEach(m => {
+      const sr = Number(m.startRowIndex || 0);
+      const er = Number(m.endRowIndex || sr + 1);
+      const sc = Number(m.startColumnIndex || 0);
+      const ec = Number(m.endColumnIndex || sc + 1);
+      if (sr < Math.max(lastValR + 4, 1) && sc < maxCols && er <= rowData.length) {
+        usedRows = Math.max(usedRows, er);
+        usedCols = Math.max(usedCols, Math.min(ec, maxCols));
+      }
+    });
+
+    for (let rIdx = usedRows; rIdx < Math.min(rowData.length, lastValR + 4); rIdx++) {
+      const vals = rowData[rIdx]?.values || [];
+      let hasBorder = false;
+      for (let cIdx = 0; cIdx < Math.min(vals.length, usedCols); cIdx++) {
+        const borders = vals[cIdx]?.effectiveFormat?.borders || {};
+        if (["top", "bottom", "left", "right"].some(side => borders[side]?.style && borders[side].style !== "NONE")) {
+          hasBorder = true;
+          usedCols = Math.max(usedCols, cIdx + 1);
+        }
+      }
+      if (hasBorder) usedRows = rIdx + 1;
+    }
+
+    usedRows = rowData.length ? Math.min(usedRows, rowData.length) : 0;
+    usedCols = Math.min(usedCols, maxCols);
+    if (usedRows <= 0 || usedCols <= 0) {
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+    }
+
+    const visRows = [];
+    for (let r = 0; r < usedRows; r++) {
+      if (!(r < rowMeta.length && rowMeta[r]?.hiddenByUser)) visRows.push(r);
+    }
+    const visCols = [];
+    for (let c = 0; c < usedCols; c++) {
+      if (!(c < colMeta.length && colMeta[c]?.hiddenByUser)) visCols.push(c);
+    }
+    if (!visRows.length || !visCols.length) {
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+    }
+
+    const rowToVis = new Map(visRows.map((r, idx) => [r, idx]));
+    const colToVis = new Map(visCols.map((c, idx) => [c, idx]));
+
+    const colWidths = visCols.map(c => Number(colMeta[c]?.pixelSize || 100));
+    const rowHeights = visRows.map(r => Number(rowMeta[r]?.pixelSize || 21));
+
+    const outMerges = [];
+    const mergeEdgeOverrides = new Map();
+    rawMerges.forEach(m => {
+      const sr = Number(m.startRowIndex || 0);
+      const er = Math.min(Number(m.endRowIndex || sr + 1), usedRows);
+      const sc = Number(m.startColumnIndex || 0);
+      const ec = Math.min(Number(m.endColumnIndex || sc + 1), usedCols);
+      const vrList = [];
+      const vcList = [];
+      for (let r = sr; r < er; r++) if (rowToVis.has(r)) vrList.push({ orig: r, vis: rowToVis.get(r) });
+      for (let c = sc; c < ec; c++) if (colToVis.has(c)) vcList.push({ orig: c, vis: colToVis.get(c) });
+      if (vrList.length && vcList.length && (vrList.length > 1 || vcList.length > 1)) {
+        const vr0 = vrList[0].vis;
+        const vc0 = vcList[0].vis;
+        outMerges.push({ r: vr0, c: vc0, rs: vrList.length, cs: vcList.length });
+        mergeEdgeOverrides.set(`${vr0},${vc0}`, {
+          edgeR: vrList[vrList.length - 1].orig,
+          edgeC: vcList[vcList.length - 1].orig,
+        });
+      }
+    });
+
+    const rawCell = (r, c) => (rowData[r]?.values?.[c] && typeof rowData[r].values[c] === "object" ? rowData[r].values[c] : {});
+
+    const rowsOut = visRows.map((origR, vr) =>
+      visCols.map((origC, vc) => {
+        const cd = rawCell(origR, origC);
+        const ef = cd.effectiveFormat || {};
+        const tf = ef.textFormat || {};
+        const borders = ef.borders || {};
+        const obj = { v: String(cd.formattedValue ?? "") };
+
+        const bg = rgbToCss(ef.backgroundColor, ef.backgroundColorStyle, "#ffffff");
+        if (bg && bg !== "#ffffff") obj.bg = bg;
+        const fg = rgbToCss(tf.foregroundColor, tf.foregroundColorStyle, "#000000");
+        if (fg && fg !== "#000000") obj.fg = fg;
+        if (tf.bold) obj.b = 1;
+        if (tf.italic) obj.i = 1;
+        if (tf.fontSize && tf.fontSize !== 10) obj.fs = tf.fontSize;
+
+        const ha = String(ef.horizontalAlignment || "").toUpperCase();
+        if (ha === "LEFT" || ha === "CENTER" || ha === "RIGHT") obj.ha = ha[0].toLowerCase();
+        const va = String(ef.verticalAlignment || "").toUpperCase();
+        if (va === "TOP" || va === "MIDDLE" || va === "BOTTOM") obj.va = va[0].toLowerCase();
+        if (String(ef.wrapStrategy || "").toUpperCase() === "WRAP") obj.w = 1;
+
+        const edge = mergeEdgeOverrides.get(`${vr},${vc}`);
+        const edgeR = edge ? edge.edgeR : origR;
+        const edgeC = edge ? edge.edgeC : origC;
+        const bt = borderToCss(borders.top);
+        const bl = borderToCss(borders.left);
+        const br = borderToCss(rawCell(origR, edgeC).effectiveFormat?.borders?.right);
+        const bb = borderToCss(rawCell(edgeR, origC).effectiveFormat?.borders?.bottom);
+        if (bt) obj.bt = bt;
+        if (br) obj.br = br;
+        if (bb) obj.bb = bb;
+        if (bl) obj.bl = bl;
+        return obj;
+      })
+    );
+
+    return {
+      ...reportMeta,
+      empty: false,
+      rows: rowsOut,
+      merges: outMerges,
+      col_widths: colWidths,
+      row_heights: rowHeights,
+      total_width_px: colWidths.reduce((a, b) => a + b, 0),
+    };
+  }
+
+  async function fetchReportData(cfgOverride = null) {
+    const cfg = cfgOverride || loadBrowserConfig();
+    const cid = resolveClientId(cfg.client_id);
+    const sid = String(cfg.spreadsheet_id || "").trim();
+    const reportTab = cfg.report_tab || DEFAULT_TABS.report;
+    if (!sid || !cid) {
+      return parseReportGridData(null, 0, 0, 0, buildReportMeta("", null, reportTab));
+    }
+    await ensureAccessToken(cid, false);
+    const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab, reportTab);
+    const reportMeta = buildReportMeta(sid, smap.report, reportTab);
+    if (!smap.report) {
+      return parseReportGridData(null, 0, 0, 0, reportMeta);
+    }
+    const qr = quoteSheet(smap.report.title);
+    const maxRows = Math.min(Number(smap.report.rowCount || 100), 350);
+    const maxCols = Math.min(Number(smap.report.columnCount || 12), 26);
+    const endColLet = colToLetters(maxCols);
+    const valRes = await sheetsFetch(
+      `/${encodeURIComponent(sid)}/values/${encodeURIComponent(`${qr}!A1:${endColLet}${maxRows}`)}?valueRenderOption=FORMATTED_VALUE`,
+      {},
+      cfg
+    );
+    const { lastR, lastC } = findLastReportValBounds(valRes.values || [], maxCols);
+    const fetchEndR = Math.min(maxRows, Math.max(lastR + 6, 40));
+    const grid = await sheetsFetch(
+      `/${encodeURIComponent(sid)}?ranges=${encodeURIComponent(`${qr}!A1:${endColLet}${fetchEndR}`)}&fields=${encodeURIComponent(REPORT_GRID_FIELDS)}`,
+      {},
+      cfg
+    );
+    return parseReportGridData(grid, lastR, lastC, maxCols, reportMeta);
+  }
+
   function buildSetupPayload(cfg, sheetUrl = "") {
     const cid = resolveClientId(cfg.client_id);
     const signedIn = loadSessionToken(cid);
@@ -764,6 +1036,7 @@
       worklog_tab: cfg.worklog_tab || DEFAULT_TABS.worklog,
       data_tab: cfg.data_tab || DEFAULT_TABS.data,
       perf_tab: cfg.perf_tab || DEFAULT_TABS.perf,
+      report_tab: cfg.report_tab || DEFAULT_TABS.report,
       sync_md_default: false,
       saved_sheets: (cfg.saved_sheets || []).filter(s => s.spreadsheet_id),
       has_credentials: Boolean(cid),
@@ -802,6 +1075,7 @@
       tasks: [],
       worklogs: [],
       perf: parsePerfStandardData([], [], {}, null),
+      report: buildReportMeta("", null, cfg.report_tab || DEFAULT_TABS.report),
     };
   }
 
@@ -816,7 +1090,7 @@
       return resp;
     }
 
-    const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab);
+    const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab, cfg.report_tab);
     const tTitle = quoteSheet(smap.tasks.title);
     const wTitle = quoteSheet(smap.worklog.title);
     const tMax = smap.tasks.rowCount;
@@ -876,9 +1150,11 @@
     setupInfo.worklog_tab = smap.worklog.title;
     setupInfo.data_tab = smap.data ? smap.data.title : cfg.data_tab;
     setupInfo.perf_tab = smap.perf ? smap.perf.title : cfg.perf_tab;
+    setupInfo.report_tab = smap.report ? smap.report.title : (cfg.report_tab || DEFAULT_TABS.report);
 
     const hValidations = await fetchPerfHValidations(sid, smap.perf, pRows, cfg);
     const perfData = parsePerfStandardData(pRows, dRows, hValidations, smap.perf);
+    const reportMeta = buildReportMeta(sid, smap.report, cfg.report_tab);
 
     return {
       needs_setup: false,
@@ -907,6 +1183,7 @@
       tasks,
       worklogs,
       perf: perfData,
+      report: reportMeta,
     };
   }
 
@@ -1086,12 +1363,13 @@
     const worklogTab = String(payload.worklog_tab || DEFAULT_TABS.worklog).trim() || DEFAULT_TABS.worklog;
     const dataTab = String(payload.data_tab || DEFAULT_TABS.data).trim() || DEFAULT_TABS.data;
     const perfTab = String(payload.perf_tab || DEFAULT_TABS.perf).trim() || DEFAULT_TABS.perf;
+    const reportTab = String(payload.report_tab || DEFAULT_TABS.report).trim() || DEFAULT_TABS.report;
 
     const sid = parseSpreadsheetId(payload.sheet_url || payload.spreadsheet_id || "");
     const clientId = resolveClientId(payload.client_id || cfg.client_id);
     await ensureAccessToken(clientId, false);
     const probeCfg = { ...cfg, auth_mode: "oauth", client_id: clientId };
-    const smap = await getSheetMap(sid, tasksTab, worklogTab, dataTab, probeCfg, perfTab);
+    const smap = await getSheetMap(sid, tasksTab, worklogTab, dataTab, probeCfg, perfTab, reportTab);
     const qt = quoteSheet(smap.tasks.title);
     const meta = await sheetsFetch(
       `/${encodeURIComponent(sid)}/values/${encodeURIComponent(`${qt}!A5:C7`)}?valueRenderOption=FORMATTED_VALUE`,
@@ -1118,6 +1396,7 @@
       worklog_tab: smap.worklog.title,
       data_tab: smap.data ? smap.data.title : "",
       perf_tab: smap.perf ? smap.perf.title : "",
+      report_tab: smap.report ? smap.report.title : "",
       available_tabs: smap.available_tabs,
       url,
       user_email: userEmail,
@@ -1132,6 +1411,9 @@
 
     if (url === "/api/bootstrap" && method === "GET") {
       return await fetchBootstrapData(cfg);
+    }
+    if (url === "/api/report" && method === "GET") {
+      return await fetchReportData(cfg);
     }
     if (url === "/api/setup" && method === "GET") {
       return buildSetupPayload(cfg);
@@ -1156,6 +1438,7 @@
       cfg.worklog_tab = info.worklog_tab;
       cfg.data_tab = info.data_tab || DEFAULT_TABS.data;
       cfg.perf_tab = info.perf_tab || DEFAULT_TABS.perf;
+      cfg.report_tab = info.report_tab || DEFAULT_TABS.report;
       upsertSavedSheet(cfg, {
         auth_mode: "oauth",
         role_mode: cfg.role_mode,
@@ -1168,6 +1451,7 @@
         worklog_tab: info.worklog_tab,
         data_tab: cfg.data_tab,
         perf_tab: cfg.perf_tab,
+        report_tab: cfg.report_tab,
         url: info.url || "",
       });
       saveBrowserConfig(cfg);

@@ -14,6 +14,7 @@ Features:
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import sys
@@ -43,10 +44,12 @@ DEFAULT_TASKS_TAB = "Tasks"
 DEFAULT_WORKLOG_TAB = "Work log"
 DEFAULT_DATA_TAB = "Data"
 DEFAULT_PERF_TAB = "Perf Standard"
+DEFAULT_REPORT_TAB = "Report"
 TASKS_GID = 697912632
 WORKLOG_GID = 1436624543
 DATA_GID = 1258735725
 PERF_GID = 1601402663
+REPORT_GID = 1670557126
 MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -131,6 +134,7 @@ def default_config() -> dict:
         "worklog_tab": DEFAULT_WORKLOG_TAB,
         "data_tab": DEFAULT_DATA_TAB,
         "perf_tab": DEFAULT_PERF_TAB,
+        "report_tab": DEFAULT_REPORT_TAB,
         "sync_md_default": False,
         "saved_sheets": [],
     }
@@ -150,6 +154,7 @@ def load_config() -> dict:
                     cfg["worklog_tab"] = (raw.get("worklog_tab") or DEFAULT_WORKLOG_TAB).strip()
                     cfg["data_tab"] = (raw.get("data_tab") or DEFAULT_DATA_TAB).strip()
                     cfg["perf_tab"] = (raw.get("perf_tab") or DEFAULT_PERF_TAB).strip()
+                    cfg["report_tab"] = (raw.get("report_tab") or DEFAULT_REPORT_TAB).strip()
                     cfg["sync_md_default"] = bool(raw.get("sync_md_default", False))
                     if isinstance(raw.get("saved_sheets"), list):
                         cfg["saved_sheets"] = raw["saved_sheets"]
@@ -319,6 +324,7 @@ def get_sheet_map(
     worklog_tab: str = DEFAULT_WORKLOG_TAB,
     data_tab: str = DEFAULT_DATA_TAB,
     perf_tab: str = DEFAULT_PERF_TAB,
+    report_tab: str = DEFAULT_REPORT_TAB,
 ) -> dict:
     meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id, includeGridData=False).execute()
     sheets_list = meta.get("sheets", [])
@@ -342,6 +348,7 @@ def get_sheet_map(
 
     data_entry = _find_sheet_entry(sheets_list, data_tab, DATA_GID)
     perf_entry = _find_sheet_entry(sheets_list, perf_tab, PERF_GID)
+    report_entry = _find_sheet_entry(sheets_list, report_tab, REPORT_GID)
 
     return {
         "spreadsheet_id": spreadsheet_id,
@@ -351,6 +358,7 @@ def get_sheet_map(
         "worklog": worklog_entry,
         "data": data_entry,
         "perf": perf_entry,
+        "report": report_entry,
     }
 
 
@@ -654,9 +662,259 @@ def validate_perf_supervisor_score(raw_val, desc: str = ""):
         n = float(s)
     except ValueError as exc:
         raise ApiError(f"Supervisor Score for '{desc or 'row'}' must be a valid number.") from exc
-    if n != n or n in (float("inf"), float("-inf")):
+    if not math.isfinite(n):
         raise ApiError(f"Supervisor Score for '{desc or 'row'}' must be a valid number.")
     return format_num_cell(n)
+
+
+REPORT_GRID_FIELDS = (
+    "sheets(properties(sheetId,title,gridProperties),merges,"
+    "data(startRow,startColumn,rowMetadata(pixelSize,hiddenByUser),"
+    "columnMetadata(pixelSize,hiddenByUser),"
+    "rowData.values(formattedValue,effectiveFormat(backgroundColor,backgroundColorStyle,"
+    "textFormat(bold,italic,fontSize,foregroundColor,foregroundColorStyle),"
+    "horizontalAlignment,verticalAlignment,wrapStrategy,borders(top,bottom,left,right)))))"
+)
+
+
+def col_to_letters(col_num: int) -> str:
+    n = max(1, int(col_num))
+    out = ""
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
+def _rgb_to_css(color_obj: dict | None, style_obj: dict | None = None, default_hex: str = "") -> str:
+    src = None
+    if isinstance(style_obj, dict) and isinstance(style_obj.get("rgbColor"), dict):
+        src = style_obj.get("rgbColor")
+    elif isinstance(color_obj, dict):
+        src = color_obj
+    if not src:
+        return default_hex
+    r = max(0, min(255, round(float(src.get("red", 0) or 0) * 255)))
+    g = max(0, min(255, round(float(src.get("green", 0) or 0) * 255)))
+    b = max(0, min(255, round(float(src.get("blue", 0) or 0) * 255)))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _border_to_css(border_obj: dict | None) -> str:
+    if not isinstance(border_obj, dict):
+        return ""
+    style = str(border_obj.get("style") or "").upper()
+    if not style or style == "NONE":
+        return ""
+    width_style = {
+        "SOLID": "1px solid",
+        "SOLID_MEDIUM": "2px solid",
+        "SOLID_THICK": "3px solid",
+        "DASHED": "1px dashed",
+        "DOTTED": "1px dotted",
+        "DOUBLE": "3px double",
+    }.get(style, "1px solid")
+    color = _rgb_to_css(border_obj.get("color"), border_obj.get("colorStyle"), default_hex="#000000")
+    return f"{width_style} {color}"
+
+
+def build_report_meta(sid: str, report_entry: dict | None, report_tab: str = DEFAULT_REPORT_TAB) -> dict:
+    if not report_entry:
+        return {
+            "has_tab": False,
+            "title": report_tab or DEFAULT_REPORT_TAB,
+            "sheet_id": None,
+            "row_count": 0,
+            "col_count": 0,
+            "sheet_url": "",
+            "export_pdf_base": "",
+        }
+    gid = report_entry.get("sheetId")
+    sheet_url = (
+        f"https://docs.google.com/spreadsheets/d/{sid}/edit?gid={gid}#gid={gid}"
+        if gid is not None
+        else f"https://docs.google.com/spreadsheets/d/{sid}/edit"
+    )
+    export_pdf_base = (
+        f"https://docs.google.com/spreadsheets/d/{sid}/export?format=pdf&gid={gid}"
+        if gid is not None
+        else f"https://docs.google.com/spreadsheets/d/{sid}/export?format=pdf"
+    )
+    return {
+        "has_tab": True,
+        "title": report_entry.get("title") or DEFAULT_REPORT_TAB,
+        "sheet_id": gid,
+        "row_count": report_entry.get("rowCount", 0),
+        "col_count": report_entry.get("columnCount", 0),
+        "sheet_url": sheet_url,
+        "export_pdf_base": export_pdf_base,
+    }
+
+
+def _find_last_report_val_bounds(val_rows: list[list], max_cols: int) -> tuple[int, int]:
+    last_r = 0
+    last_c = 0
+    for r_idx, r in enumerate(val_rows, start=1):
+        for c_idx in range(min(len(r), max_cols)):
+            val = r[c_idx]
+            if val is not None and str(val).strip() != "":
+                last_r = max(last_r, r_idx)
+                last_c = max(last_c, c_idx + 1)
+    return last_r, last_c
+
+
+def parse_report_grid_data(
+    sheet_payload: dict | None,
+    last_val_row: int,
+    last_val_col: int,
+    max_cols: int,
+    report_meta: dict,
+) -> dict:
+    if not report_meta.get("has_tab"):
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+    sheet_obj = (sheet_payload or {}).get("sheets", [{}])[0] if (sheet_payload or {}).get("sheets") else {}
+    grid_data = (sheet_obj.get("data") or [{}])[0]
+    row_data = grid_data.get("rowData") or []
+    row_meta = grid_data.get("rowMetadata") or []
+    col_meta = grid_data.get("columnMetadata") or []
+    raw_merges = sheet_obj.get("merges") or []
+
+    if last_val_row <= 0 and not raw_merges:
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+
+    used_rows = max(last_val_row, 1)
+    used_cols = max(last_val_col, 1)
+
+    for m in raw_merges:
+        sr = int(m.get("startRowIndex", 0))
+        er = int(m.get("endRowIndex", sr + 1))
+        sc = int(m.get("startColumnIndex", 0))
+        ec = int(m.get("endColumnIndex", sc + 1))
+        if sr < max(last_val_row + 4, 1) and sc < max_cols and er <= len(row_data):
+            used_rows = max(used_rows, er)
+            used_cols = max(used_cols, min(ec, max_cols))
+
+    # Preserve bordered signature/footer rows right after last value row
+    for r_idx in range(used_rows, min(len(row_data), last_val_row + 4)):
+        vals = (row_data[r_idx] or {}).get("values") or []
+        has_border_or_fill = False
+        for c_idx in range(min(len(vals), used_cols)):
+            ef = (vals[c_idx] or {}).get("effectiveFormat") or {}
+            borders = ef.get("borders") or {}
+            if any(bool((borders.get(side) or {}).get("style") not in (None, "", "NONE")) for side in ("top", "bottom", "left", "right")):
+                has_border_or_fill = True
+                used_cols = max(used_cols, c_idx + 1)
+        if has_border_or_fill:
+            used_rows = r_idx + 1
+
+    used_rows = min(used_rows, len(row_data)) if row_data else 0
+    used_cols = min(used_cols, max_cols)
+    if used_rows <= 0 or used_cols <= 0:
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+
+    vis_rows = [
+        r for r in range(used_rows)
+        if not (r < len(row_meta) and bool((row_meta[r] or {}).get("hiddenByUser")))
+    ]
+    vis_cols = [
+        c for c in range(used_cols)
+        if not (c < len(col_meta) and bool((col_meta[c] or {}).get("hiddenByUser")))
+    ]
+    if not vis_rows or not vis_cols:
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+
+    row_to_vis = {r: idx for idx, r in enumerate(vis_rows)}
+    col_to_vis = {c: idx for idx, c in enumerate(vis_cols)}
+
+    col_widths = [
+        int((col_meta[c] or {}).get("pixelSize") or 100) if c < len(col_meta) else 100
+        for c in vis_cols
+    ]
+    row_heights = [
+        int((row_meta[r] or {}).get("pixelSize") or 21) if r < len(row_meta) else 21
+        for r in vis_rows
+    ]
+
+    out_merges = []
+    merge_edge_overrides: dict[tuple[int, int], tuple[int, int]] = {}
+    for m in raw_merges:
+        sr = int(m.get("startRowIndex", 0))
+        er = min(int(m.get("endRowIndex", sr + 1)), used_rows)
+        sc = int(m.get("startColumnIndex", 0))
+        ec = min(int(m.get("endColumnIndex", sc + 1)), used_cols)
+        v_rows_in = [row_to_vis[r] for r in range(sr, er) if r in row_to_vis]
+        v_cols_in = [col_to_vis[c] for c in range(sc, ec) if c in col_to_vis]
+        if v_rows_in and v_cols_in and (len(v_rows_in) > 1 or len(v_cols_in) > 1):
+            vr0, vc0 = v_rows_in[0], v_cols_in[0]
+            out_merges.append({"r": vr0, "c": vc0, "rs": len(v_rows_in), "cs": len(v_cols_in)})
+            merge_edge_overrides[(vr0, vc0)] = (max(r for r in range(sr, er) if r in row_to_vis), max(c for c in range(sc, ec) if c in col_to_vis))
+
+    def _raw_cell(r: int, c: int) -> dict:
+        if r < len(row_data):
+            vals = (row_data[r] or {}).get("values") or []
+            if c < len(vals) and isinstance(vals[c], dict):
+                return vals[c]
+        return {}
+
+    rows_out = []
+    for vr, orig_r in enumerate(vis_rows):
+        row_cells = []
+        for vc, orig_c in enumerate(vis_cols):
+            cd = _raw_cell(orig_r, orig_c)
+            ef = cd.get("effectiveFormat") or {}
+            tf = ef.get("textFormat") or {}
+            borders = ef.get("borders") or {}
+            cell_obj: dict = {"v": str(cd.get("formattedValue") or "")}
+
+            bg = _rgb_to_css(ef.get("backgroundColor"), ef.get("backgroundColorStyle"), default_hex="#ffffff")
+            if bg and bg != "#ffffff":
+                cell_obj["bg"] = bg
+            fg = _rgb_to_css(tf.get("foregroundColor"), tf.get("foregroundColorStyle"), default_hex="#000000")
+            if fg and fg != "#000000":
+                cell_obj["fg"] = fg
+            if tf.get("bold"):
+                cell_obj["b"] = 1
+            if tf.get("italic"):
+                cell_obj["i"] = 1
+            fs = tf.get("fontSize")
+            if fs and fs != 10:
+                cell_obj["fs"] = fs
+
+            ha = str(ef.get("horizontalAlignment") or "").upper()
+            if ha in ("LEFT", "CENTER", "RIGHT"):
+                cell_obj["ha"] = ha[0].lower()
+            va = str(ef.get("verticalAlignment") or "").upper()
+            if va in ("TOP", "MIDDLE", "BOTTOM"):
+                cell_obj["va"] = va[0].lower()
+            if str(ef.get("wrapStrategy") or "").upper() == "WRAP":
+                cell_obj["w"] = 1
+
+            bt = _border_to_css(borders.get("top"))
+            bl = _border_to_css(borders.get("left"))
+            edge_r, edge_c = merge_edge_overrides.get((vr, vc), (orig_r, orig_c))
+            br = _border_to_css(((_raw_cell(orig_r, edge_c).get("effectiveFormat") or {}).get("borders") or {}).get("right"))
+            bb = _border_to_css(((_raw_cell(edge_r, orig_c).get("effectiveFormat") or {}).get("borders") or {}).get("bottom"))
+            if bt:
+                cell_obj["bt"] = bt
+            if br:
+                cell_obj["br"] = br
+            if bb:
+                cell_obj["bb"] = bb
+            if bl:
+                cell_obj["bl"] = bl
+
+            row_cells.append(cell_obj)
+        rows_out.append(row_cells)
+
+    return {
+        **report_meta,
+        "empty": False,
+        "rows": rows_out,
+        "merges": out_merges,
+        "col_widths": col_widths,
+        "row_heights": row_heights,
+        "total_width_px": sum(col_widths),
+    }
 
 
 def fetch_perf_h_validations(svc, sid: str, perf_entry: dict | None, p_rows: list[list]) -> dict[int, list[str]]:
@@ -703,6 +961,7 @@ def build_setup_status(cfg: dict, sheet_url: str = "") -> dict:
         "worklog_tab": cfg.get("worklog_tab", DEFAULT_WORKLOG_TAB),
         "data_tab": cfg.get("data_tab", DEFAULT_DATA_TAB),
         "perf_tab": cfg.get("perf_tab", DEFAULT_PERF_TAB),
+        "report_tab": cfg.get("report_tab", DEFAULT_REPORT_TAB),
         "sync_md_default": bool(cfg.get("sync_md_default", False)),
         "saved_sheets": cfg.get("saved_sheets", []),
         "has_credentials": bool(resolve_credentials_file()),
@@ -741,15 +1000,17 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
             "tasks": [],
             "worklogs": [],
             "perf": parse_perf_standard_data([], [], {}, None),
+            "report": build_report_meta("", None, cfg.get("report_tab", DEFAULT_REPORT_TAB)),
         }
 
     tasks_tab = cfg.get("tasks_tab", DEFAULT_TASKS_TAB)
     worklog_tab = cfg.get("worklog_tab", DEFAULT_WORKLOG_TAB)
     data_tab = cfg.get("data_tab", DEFAULT_DATA_TAB)
     perf_tab = cfg.get("perf_tab", DEFAULT_PERF_TAB)
+    report_tab = cfg.get("report_tab", DEFAULT_REPORT_TAB)
 
     def _run(svc):
-        smap = get_sheet_map(svc, spreadsheet_id, tasks_tab, worklog_tab, data_tab, perf_tab)
+        smap = get_sheet_map(svc, spreadsheet_id, tasks_tab, worklog_tab, data_tab, perf_tab, report_tab)
         t_title = quote_sheet(smap["tasks"]["title"])
         w_title = quote_sheet(smap["worklog"]["title"])
         t_max_row = smap["tasks"]["rowCount"]
@@ -823,9 +1084,11 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
         setup_info["worklog_tab"] = smap["worklog"]["title"]
         setup_info["data_tab"] = smap["data"]["title"] if smap["data"] else data_tab
         setup_info["perf_tab"] = smap["perf"]["title"] if smap.get("perf") else perf_tab
+        setup_info["report_tab"] = smap["report"]["title"] if smap.get("report") else report_tab
 
         h_vals = fetch_perf_h_validations(svc, spreadsheet_id, smap.get("perf"), p_rows)
         perf_data = parse_perf_standard_data(p_rows, d_rows, h_vals, smap.get("perf"))
+        report_meta = build_report_meta(spreadsheet_id, smap.get("report"), report_tab)
 
         return {
             "needs_setup": False,
@@ -854,6 +1117,7 @@ def fetch_bootstrap_data(service=None, cfg: dict | None = None) -> dict:
             "tasks": tasks,
             "worklogs": worklogs,
             "perf": perf_data,
+            "report": report_meta,
         }
 
     if service is not None:
@@ -1000,8 +1264,52 @@ def _active_smap(svc, cfg: dict) -> tuple[str, dict]:
         cfg.get("worklog_tab", DEFAULT_WORKLOG_TAB),
         cfg.get("data_tab", DEFAULT_DATA_TAB),
         cfg.get("perf_tab", DEFAULT_PERF_TAB),
+        cfg.get("report_tab", DEFAULT_REPORT_TAB),
     )
     return sid, smap
+
+
+def fetch_report_data(service=None, cfg: dict | None = None) -> dict:
+    cfg = cfg or load_config()
+    report_tab = cfg.get("report_tab", DEFAULT_REPORT_TAB)
+    if not (cfg.get("spreadsheet_id") or "").strip():
+        return parse_report_grid_data(None, 0, 0, 0, build_report_meta("", None, report_tab))
+
+    def _run(svc):
+        sid, smap = _active_smap(svc, cfg)
+        report_entry = smap.get("report")
+        report_meta = build_report_meta(sid, report_entry, report_tab)
+        if not report_entry:
+            return parse_report_grid_data(None, 0, 0, 0, report_meta)
+        qr = quote_sheet(report_entry["title"])
+        max_rows = min(int(report_entry.get("rowCount") or 100), 350)
+        max_cols = min(int(report_entry.get("columnCount") or 12), 26)
+        end_col_let = col_to_letters(max_cols)
+        val_rows = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sid, range=f"{qr}!A1:{end_col_let}{max_rows}", valueRenderOption="FORMATTED_VALUE")
+            .execute()
+            .get("values", [])
+        )
+        last_val_r, last_val_c = _find_last_report_val_bounds(val_rows, max_cols)
+        fetch_end_r = min(max_rows, max(last_val_r + 6, 40))
+        grid = (
+            svc.spreadsheets()
+            .get(
+                spreadsheetId=sid,
+                ranges=[f"{qr}!A1:{end_col_let}{fetch_end_r}"],
+                fields=REPORT_GRID_FIELDS,
+            )
+            .execute()
+        )
+        return parse_report_grid_data(grid, last_val_r, last_val_c, max_cols, report_meta)
+
+    if service is not None:
+        return _run(service)
+    with sheets_lock:
+        svc = get_sheets_service()
+        return _run(svc)
 
 
 def create_task(payload: dict) -> dict:
@@ -1746,8 +2054,9 @@ def _probe_sheet_setup(svc, payload: dict) -> tuple[dict, dict]:
     worklog_tab = (payload.get("worklog_tab") or DEFAULT_WORKLOG_TAB).strip() or DEFAULT_WORKLOG_TAB
     data_tab = (payload.get("data_tab") or DEFAULT_DATA_TAB).strip() or DEFAULT_DATA_TAB
     perf_tab = (payload.get("perf_tab") or DEFAULT_PERF_TAB).strip() or DEFAULT_PERF_TAB
+    report_tab = (payload.get("report_tab") or DEFAULT_REPORT_TAB).strip() or DEFAULT_REPORT_TAB
 
-    smap = get_sheet_map(svc, sid, tasks_tab, worklog_tab, data_tab, perf_tab)
+    smap = get_sheet_map(svc, sid, tasks_tab, worklog_tab, data_tab, perf_tab, report_tab)
     t_title = quote_sheet(smap["tasks"]["title"])
     meta_rows = (
         svc.spreadsheets()
@@ -1777,6 +2086,7 @@ def _probe_sheet_setup(svc, payload: dict) -> tuple[dict, dict]:
         "worklog_tab": smap["worklog"]["title"],
         "data_tab": smap["data"]["title"] if smap["data"] else "",
         "perf_tab": smap["perf"]["title"] if smap.get("perf") else "",
+        "report_tab": smap["report"]["title"] if smap.get("report") else "",
         "available_tabs": smap["available_tabs"],
         "url": url,
     }
@@ -1804,6 +2114,7 @@ def apply_setup(payload: dict) -> dict:
         cfg["worklog_tab"] = info["worklog_tab"]
         cfg["data_tab"] = info["data_tab"] or DEFAULT_DATA_TAB
         cfg["perf_tab"] = info.get("perf_tab") or DEFAULT_PERF_TAB
+        cfg["report_tab"] = info.get("report_tab") or DEFAULT_REPORT_TAB
         if "sync_md_default" in payload:
             cfg["sync_md_default"] = bool(payload["sync_md_default"])
         upsert_saved_sheet(
@@ -1817,6 +2128,7 @@ def apply_setup(payload: dict) -> dict:
                 "worklog_tab": info["worklog_tab"],
                 "data_tab": cfg["data_tab"],
                 "perf_tab": cfg["perf_tab"],
+                "report_tab": cfg["report_tab"],
                 "url": info["url"],
             },
         )
@@ -1917,6 +2229,11 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/bootstrap":
             try:
                 self._send_json(fetch_bootstrap_data())
+            except Exception as exc:
+                self._handle_exception(exc)
+        elif parsed.path == "/api/report":
+            try:
+                self._send_json(fetch_report_data())
             except Exception as exc:
                 self._handle_exception(exc)
         elif parsed.path == "/api/setup":

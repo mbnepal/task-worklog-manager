@@ -761,7 +761,125 @@
 
     .hidden { display: none !important; }
     .highlight-req { border-color: #d97706 !important; background: #fffbeb !important; }
+
+    /* Report sheet view & print */
+    .report-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-alt);
+    }
+    .report-controls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .report-paper-shell {
+      padding: 18px;
+      background: #e2e8f0;
+      overflow: auto;
+      max-height: 76vh;
+    }
+    .report-paper {
+      background: #ffffff;
+      color: #000000;
+      margin: 0 auto;
+      padding: 16px;
+      width: max-content;
+      min-width: 100%;
+      border-radius: 4px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.12);
+    }
+    .report-sheet-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #ffffff;
+      color: #000000;
+      margin: 0 auto;
+    }
+    .report-sheet-table td {
+      padding: 3px 5px;
+      font-family: Arial, "Noto Sans", sans-serif;
+      font-size: 10pt;
+      line-height: 1.25;
+      vertical-align: middle;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      border: none;
+    }
+    .report-sheet-table.show-gridlines td {
+      border: 1px solid #cbd5e1;
+    }
+    .report-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+      background: #ffffff;
+      border-radius: 6px;
+    }
+    @media print {
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      body {
+        background: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .topbar,
+      .error-banner,
+      #tasksView,
+      #worklogsView,
+      #perfView,
+      .report-toolbar,
+      .table-footer,
+      .modal-backdrop,
+      .toast-wrap {
+        display: none !important;
+      }
+      .container {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      #reportView,
+      #reportView .card {
+        display: block !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: #ffffff !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .report-paper-shell {
+        background: #ffffff !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        max-height: none !important;
+      }
+      .report-paper {
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+      .report-sheet-table.fit-width {
+        width: 100% !important;
+      }
+    }
   </style>
+  <style id="reportPrintStyle"></style>
 </head>
 <body>
   <header class="topbar">
@@ -803,6 +921,9 @@
         </button>
         <button class="tab-btn" id="tabBtnPerf" onclick="switchTab('perf')">
           Perf Standard <span class="tab-count" id="perfCountBadge">0</span>
+        </button>
+        <button class="tab-btn" id="tabBtnReport" onclick="switchTab('report')">
+          Report <span class="tab-count" id="reportTabBadge">View</span>
         </button>
       </div>
       <div class="brand-sub" style="padding: 8px 0;">
@@ -966,6 +1087,43 @@
         <div class="table-footer">
           <span id="perfFooterInfo">Loading...</span>
           <span id="perfFooterRuleHint">Only Achievement (Col H) on the current/new month is editable; past months are view-only and formulas/weights/supervisor scores stay locked.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- REPORT VIEW (Read-Only View & Print from Google Sheet) -->
+    <section id="reportView" class="hidden">
+      <div class="card">
+        <div class="report-toolbar">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong style="font-size:14px;">Monthly Report (Read-Only)</strong>
+            <span class="badge badge-gray" id="reportMetaBadge">Google Sheet Format</span>
+          </div>
+          <div class="report-controls">
+            <select class="select" id="reportOrientation" onchange="updateReportPrintLinks()" title="Page orientation for printing &amp; Google Sheet PDF">
+              <option value="portrait">Portrait (A4)</option>
+              <option value="landscape">Landscape (A4)</option>
+            </select>
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); cursor:pointer;">
+              <input type="checkbox" id="reportFitWidth" checked onchange="syncReportTableOptions()" />
+              Fit to page width
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); cursor:pointer;">
+              <input type="checkbox" id="reportGridlines" onchange="syncReportTableOptions()" />
+              Gridlines
+            </label>
+            <button type="button" class="btn btn-sm" id="reportReloadBtn" onclick="loadReportGrid(true)">↻ Reload Report</button>
+            <button type="button" class="btn btn-sm btn-primary" id="reportPrintBtn" onclick="printReportSheet()">🖨 Print Report</button>
+            <a class="btn btn-sm" id="reportPdfBtn" href="#" target="_blank" rel="noopener noreferrer" title="Open or download Google Sheet's native print PDF format">📄 Google Sheet Print PDF</a>
+            <a class="btn btn-sm hidden" id="reportOpenSheetBtn" href="#" target="_blank" rel="noopener noreferrer">Open Sheet ↗</a>
+          </div>
+        </div>
+        <div class="report-paper-shell" id="reportGridWrap">
+          <div class="report-empty">Open the Report tab after connecting your Google Sheet to load the formatted Report view.</div>
+        </div>
+        <div class="table-footer">
+          <span id="reportFooterInfo">Read-only view from Google Sheet Report tab.</span>
+          <span>View &amp; Print only — edits are locked on the Report tab.</span>
         </div>
       </div>
     </section>
@@ -1380,6 +1538,10 @@
                   <label>Perf Standard Tab Name</label>
                   <input class="input" type="text" id="sf_perf_tab" value="Perf Standard" />
                 </div>
+                <div class="field">
+                  <label>Report Tab Name (View &amp; Print)</label>
+                  <input class="input" type="text" id="sf_report_tab" value="Report" />
+                </div>
               </div>
 
               <div id="sf_oauth_wrap" style="display:flex; flex-direction:column; gap:8px;">
@@ -1423,6 +1585,9 @@
       tasks: [],
       worklogs: [],
       perf: { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" },
+      report: { has_tab: false },
+      reportGrid: null,
+      reportLoading: false,
       perfSelectedKey: "",
       perfDrafts: {},
       perfSupDrafts: {},
@@ -1579,6 +1744,8 @@
       state.tasks = data.tasks || [];
       state.worklogs = data.worklogs || [];
       state.perf = data.perf || { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" };
+      state.report = data.report || { has_tab: false };
+      state.reportGrid = null;
       state.perfDrafts = {};
       state.perfSupDrafts = {};
       state.perfSupScoreDrafts = {};
@@ -1658,13 +1825,28 @@
       document.getElementById("tasksCountBadge").textContent = state.tasks.length;
       document.getElementById("worklogCountBadge").textContent = state.worklogs.length;
       document.getElementById("perfCountBadge").textContent = (state.perf.months || []).length;
+      document.getElementById("reportTabBadge").textContent =
+        data.needs_setup ? "View" : (state.report.has_tab ? "Ready" : "Missing");
 
       hydrateFilterSelects();
       hydrateModalDropdowns();
-      switchTab(state.activeTab);
+      updateReportPrintLinks();
+      if (data.needs_setup) {
+        renderReportEmptyState(
+          data.needs_signin
+            ? "Sign in with Google to load the Report tab."
+            : "Connect your Google Sheet in Setup to load the Report tab."
+        );
+      } else {
+        renderReportEmptyState("Click ↻ Reload Report or switch to Report tab to load the formatted sheet.");
+      }
+      switchTab(state.activeTab, true);
       renderTasks();
       renderWorklogs();
       renderPerfStandard();
+      if (!data.needs_setup && state.activeTab === "report") {
+        loadReportGrid(false);
+      }
     }
 
     function hydrateFilterSelects() {
@@ -1735,23 +1917,35 @@
       fill("tf_difficulty", state.dropdowns.difficulties, false);
     }
 
-    function switchTab(tab) {
+    function switchTab(tab, skipReportLoad = false) {
       state.activeTab = tab;
       document.getElementById("tabBtnTasks").classList.toggle("active", tab === "tasks");
       document.getElementById("tabBtnWorklog").classList.toggle("active", tab === "worklogs");
       document.getElementById("tabBtnPerf").classList.toggle("active", tab === "perf");
+      document.getElementById("tabBtnReport").classList.toggle("active", tab === "report");
       document.getElementById("tasksView").classList.toggle("hidden", tab !== "tasks");
       document.getElementById("worklogsView").classList.toggle("hidden", tab !== "worklogs");
       document.getElementById("perfView").classList.toggle("hidden", tab !== "perf");
+      document.getElementById("reportView").classList.toggle("hidden", tab !== "report");
       const primaryBtn = document.getElementById("primaryNewBtn");
-      primaryBtn.classList.toggle("hidden", isSupervisorMode());
+      primaryBtn.classList.toggle("hidden", isSupervisorMode() || tab === "report");
       primaryBtn.textContent =
         tab === "tasks" ? "+ New Task" : tab === "worklogs" ? "+ New Work Log" : "+ New Month";
+      if (tab === "report") {
+        updateReportPrintLinks();
+        if (!skipReportLoad && !state.reportGrid && !state.reportLoading && state.spreadsheet?.id) {
+          loadReportGrid(false);
+        }
+      }
     }
 
     function openPrimaryNew() {
       if (isSupervisorMode()) {
         showToast("Supervision mode only allows adding Supervisor comments.", "error");
+        return;
+      }
+      if (state.activeTab === "report") {
+        showToast("Report tab is view and print only.", "info");
         return;
       }
       if (state.activeTab === "tasks") openTaskModal();
@@ -3250,6 +3444,7 @@
         document.getElementById("sf_worklog_tab").value = cfg.worklog_tab || "Work log";
         document.getElementById("sf_data_tab").value = cfg.data_tab || "Data";
         document.getElementById("sf_perf_tab").value = cfg.perf_tab || "Perf Standard";
+        document.getElementById("sf_report_tab").value = cfg.report_tab || "Report";
         syncModeUi();
 
         const credsBanner = document.getElementById("setupCredsBanner");
@@ -3297,6 +3492,7 @@
         state.setupRoleDirty = false;
         document.getElementById("sf_client_id").value = data.setup?.client_id || "";
         document.getElementById("sf_sheet_url").value = "";
+        document.getElementById("sf_report_tab").value = "Report";
         document.getElementById("setupCredsBanner").classList.add("hidden");
         document.getElementById("setupTestStatus").classList.add("hidden");
         document.getElementById("sf_advanced_details").open = false;
@@ -3354,6 +3550,7 @@
         worklog_tab: document.getElementById("sf_worklog_tab").value,
         data_tab: document.getElementById("sf_data_tab").value,
         perf_tab: document.getElementById("sf_perf_tab").value,
+        report_tab: document.getElementById("sf_report_tab").value,
       };
     }
 
@@ -3445,6 +3642,7 @@
       document.getElementById("sf_worklog_tab").value = item.worklog_tab || "Work log";
       document.getElementById("sf_data_tab").value = item.data_tab || "Data";
       document.getElementById("sf_perf_tab").value = item.perf_tab || "Perf Standard";
+      document.getElementById("sf_report_tab").value = item.report_tab || "Report";
       await submitSetupForm(new Event("submit"));
     }
 
@@ -3605,6 +3803,244 @@
     document.getElementById("cf_date").addEventListener("change", updateCompleteTaskState);
     document.getElementById("perfSearch").addEventListener("input", renderPerfStandard);
 
+    // --- READ-ONLY PRINTABLE REPORT TAB ---
+    function getReportOrientation() {
+      return document.getElementById("reportOrientation").value === "landscape" ? "landscape" : "portrait";
+    }
+
+    function getReportExportPdfUrl() {
+      const base = state.reportGrid?.export_pdf_base || state.report?.export_pdf_base || "";
+      if (!base) return "";
+      const isPortrait = getReportOrientation() === "portrait";
+      const fitW = document.getElementById("reportFitWidth").checked;
+      const showGrid = document.getElementById("reportGridlines").checked;
+      return `${base}&size=A4&portrait=${isPortrait}&fitw=${fitW}&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=${showGrid}&fzr=false`;
+    }
+
+    function syncReportPrintPageRule() {
+      const styleEl = document.getElementById("reportPrintStyle");
+      if (!styleEl) return;
+      const orient = getReportOrientation();
+      styleEl.textContent = `@media print { @page { size: A4 ${orient}; margin: 8mm; } }`;
+    }
+
+    function syncReportTableOptions() {
+      const table = document.querySelector("#reportGridWrap .report-sheet-table");
+      if (table) {
+        table.classList.toggle("fit-width", document.getElementById("reportFitWidth").checked);
+        table.classList.toggle("show-gridlines", document.getElementById("reportGridlines").checked);
+      }
+      const pdfBtn = document.getElementById("reportPdfBtn");
+      const pdfUrl = getReportExportPdfUrl();
+      if (pdfBtn) {
+        pdfBtn.href = pdfUrl || "#";
+        pdfBtn.classList.toggle("hidden", !pdfUrl);
+      }
+    }
+
+    function updateReportPrintLinks() {
+      syncReportPrintPageRule();
+      syncReportTableOptions();
+      const openBtn = document.getElementById("reportOpenSheetBtn");
+      const sheetUrl = state.reportGrid?.sheet_url || state.report?.sheet_url || state.spreadsheet?.url || "";
+      if (openBtn) {
+        openBtn.href = sheetUrl || "#";
+        openBtn.classList.toggle("hidden", !sheetUrl);
+      }
+      const printBtn = document.getElementById("reportPrintBtn");
+      if (printBtn) {
+        printBtn.disabled = !(state.reportGrid && state.reportGrid.has_tab && !state.reportGrid.empty);
+      }
+    }
+
+    function renderReportEmptyState(msg) {
+      const wrap = document.getElementById("reportGridWrap");
+      if (!wrap) return;
+      wrap.innerHTML = `<div class="report-empty">${escapeHtml(msg || "No Report data loaded yet.")}</div>`;
+      const meta = document.getElementById("reportMetaBadge");
+      if (meta) meta.textContent = state.report?.has_tab ? (state.report.title || "Report") : "Google Sheet Format";
+      const footer = document.getElementById("reportFooterInfo");
+      if (footer) footer.textContent = msg || "Read-only view from Google Sheet Report tab.";
+    }
+
+    function _sanitizeReportColor(val) {
+      const s = String(val || "").trim();
+      return /^#[0-9a-fA-F]{3,8}$/.test(s) ? s : "";
+    }
+
+    function _sanitizeReportBorder(val) {
+      const s = String(val || "").trim();
+      return /^\d+(?:\.\d+)?px\s+(?:solid|dashed|dotted|double)\s+#[0-9a-fA-F]{3,8}$/.test(s) ? s : "";
+    }
+
+    function _buildReportCellStyle(cell) {
+      if (!cell) return "";
+      const parts = [];
+      const bg = _sanitizeReportColor(cell.bg);
+      if (bg) parts.push(`background-color:${bg}`);
+      const fg = _sanitizeReportColor(cell.fg);
+      if (fg) parts.push(`color:${fg}`);
+      if (cell.b) parts.push("font-weight:700");
+      if (cell.i) parts.push("font-style:italic");
+      const fs = Number(cell.fs);
+      if (Number.isFinite(fs) && fs >= 6 && fs <= 48) parts.push(`font-size:${fs}pt`);
+      const hMap = { l: "left", c: "center", r: "right", left: "left", center: "center", right: "right" };
+      const vMap = { t: "top", m: "middle", b: "bottom", top: "top", middle: "middle", bottom: "bottom" };
+      const ha = hMap[cell.ha];
+      if (ha) parts.push(`text-align:${ha}`);
+      const va = vMap[cell.va];
+      if (va) parts.push(`vertical-align:${va}`);
+      if (cell.w === 1 || cell.w === true) parts.push("white-space:pre-wrap");
+      const bt = _sanitizeReportBorder(cell.bt);
+      const br = _sanitizeReportBorder(cell.br);
+      const bb = _sanitizeReportBorder(cell.bb);
+      const bl = _sanitizeReportBorder(cell.bl);
+      if (bt) parts.push(`border-top:${bt}`);
+      if (br) parts.push(`border-right:${br}`);
+      if (bb) parts.push(`border-bottom:${bb}`);
+      if (bl) parts.push(`border-left:${bl}`);
+      return parts.join(";");
+    }
+
+    function renderReportGrid() {
+      const g = state.reportGrid;
+      const wrap = document.getElementById("reportGridWrap");
+      if (!g) {
+        renderReportEmptyState("Click ↻ Reload Report to load the Report sheet.");
+        updateReportPrintLinks();
+        return;
+      }
+      if (!g.has_tab) {
+        renderReportEmptyState(`Tab "${state.setup?.report_tab || "Report"}" was not found in this Google Sheet.`);
+        updateReportPrintLinks();
+        return;
+      }
+      const rows = Array.isArray(g.rows) ? g.rows : [];
+      if (g.empty || !rows.length) {
+        renderReportEmptyState(`The "${g.title || "Report"}" tab is currently empty.`);
+        updateReportPrintLinks();
+        return;
+      }
+
+      const rowCount = rows.length;
+      const colCount = Math.max(1, Number(g.col_count) || rows[0].length || 1);
+      const colWidths = Array.isArray(g.col_widths) ? g.col_widths : [];
+      const rowHeights = Array.isArray(g.row_heights) ? g.row_heights : [];
+      const totalWidth = Number(g.total_width_px) || colWidths.reduce((a, b) => a + (Number(b) || 100), 0) || (colCount * 100);
+
+      const mergeMap = new Map();
+      const covered = new Set();
+      (Array.isArray(g.merges) ? g.merges : []).forEach(m => {
+        const mr = Number(m.r), mc = Number(m.c), mrs = Number(m.rs), mcs = Number(m.cs);
+        if (!Number.isInteger(mr) || !Number.isInteger(mc) || mr < 0 || mc < 0 || mr >= rowCount || mc >= colCount) return;
+        const rs = Math.max(1, Math.min(mrs || 1, rowCount - mr));
+        const cs = Math.max(1, Math.min(mcs || 1, colCount - mc));
+        mergeMap.set(`${mr}:${mc}`, { rs, cs });
+        for (let r = mr; r < mr + rs; r++) {
+          for (let c = mc; c < mc + cs; c++) {
+            if (r !== mr || c !== mc) covered.add(`${r}:${c}`);
+          }
+        }
+      });
+
+      const colsHtml = Array.from({ length: colCount }, (_, c) => {
+        const wPx = Number(colWidths[c]) || 100;
+        const pct = totalWidth > 0 ? ((wPx / totalWidth) * 100).toFixed(3) : (100 / colCount).toFixed(3);
+        return `<col style="width:${pct}%;">`;
+      }).join("");
+
+      const bodyHtml = rows.map((row, r) => {
+        const hPx = Number(rowHeights[r]) || 21;
+        let tds = "";
+        for (let c = 0; c < colCount; c++) {
+          const key = `${r}:${c}`;
+          if (covered.has(key)) continue;
+          const cell = (row && row[c]) || {};
+          const m = mergeMap.get(key);
+          const spanAttrs = (m && m.rs > 1 ? ` rowspan="${m.rs}"` : "") + (m && m.cs > 1 ? ` colspan="${m.cs}"` : "");
+          const styleStr = _buildReportCellStyle(cell);
+          const styleAttr = styleStr ? ` style="${escapeHtml(styleStr)}"` : "";
+          const valHtml = cell.v ? escapeHtml(cell.v) : "&nbsp;";
+          tds += `<td${spanAttrs}${styleAttr}>${valHtml}</td>`;
+        }
+        return `<tr style="height:${hPx}px;">${tds}</tr>`;
+      }).join("");
+
+      wrap.innerHTML = `
+        <div class="report-paper">
+          <table class="report-sheet-table" style="width:${Math.max(320, Math.round(totalWidth))}px;">
+            <colgroup>${colsHtml}</colgroup>
+            <tbody>${bodyHtml}</tbody>
+          </table>
+        </div>
+      `;
+
+      const title = g.title || "Report";
+      document.getElementById("reportMetaBadge").textContent = `${title} • ${rowCount} rows × ${colCount} cols`;
+      document.getElementById("reportFooterInfo").textContent =
+        `Showing ${rowCount} row(s) × ${colCount} column(s) from "${title}" (view & print only).`;
+      document.getElementById("reportTabBadge").textContent = "Ready";
+      updateReportPrintLinks();
+    }
+
+    async function loadReportGrid(showToastOnDone = false) {
+      if (state.reportLoading) return;
+      state.reportLoading = true;
+      const btn = document.getElementById("reportReloadBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Loading...";
+      }
+      const wrap = document.getElementById("reportGridWrap");
+      if (wrap && !state.reportGrid) {
+        renderReportEmptyState("Loading Report tab from Google Sheets...");
+      }
+      try {
+        const data = await apiFetch("/api/report");
+        state.reportGrid = data;
+        state.report = {
+          has_tab: Boolean(data.has_tab),
+          title: data.title || state.setup?.report_tab || "Report",
+          sheet_id: data.sheet_id,
+          row_count: data.row_count || 0,
+          col_count: data.col_count || 0,
+          sheet_url: data.sheet_url || "",
+          export_pdf_base: data.export_pdf_base || "",
+        };
+        renderReportGrid();
+        if (showToastOnDone) {
+          showToast(
+            data.has_tab ? `Loaded "${state.report.title}" from Google Sheets.` : "Report tab not found.",
+            data.has_tab ? "success" : "info"
+          );
+        }
+      } catch (err) {
+        renderReportEmptyState(`Failed to load Report tab: ${err.message}`);
+        updateReportPrintLinks();
+        showToast(err.message, "error");
+      } finally {
+        state.reportLoading = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "↻ Reload Report";
+        }
+      }
+    }
+
+    async function printReportSheet() {
+      if (state.activeTab !== "report") switchTab("report", true);
+      if (!state.reportGrid && state.spreadsheet?.id) {
+        await loadReportGrid(false);
+      }
+      if (!state.reportGrid || !state.reportGrid.has_tab || state.reportGrid.empty) {
+        showToast("Load a non-empty Report sheet first before printing.", "error");
+        return;
+      }
+      syncReportPrintPageRule();
+      syncReportTableOptions();
+      window.print();
+    }
+
     // Keyboard shortcuts (do not close modals on outside backdrop clicks)
 
     document.addEventListener("keydown", e => {
@@ -3634,6 +4070,7 @@
         return;
       }
       if (!anyOpen && e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
+        if (state.activeTab === "report") return;
         e.preventDefault();
         document.getElementById(
           state.activeTab === "tasks" ? "taskSearch" : state.activeTab === "worklogs" ? "wlSearch" : "perfSearch"

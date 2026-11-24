@@ -22,6 +22,9 @@ Works in **two modes** using the same interface:
 - **Perf Standard Tab (`Perf Standard`)**
   - View historical months read-only via the Month selector, or click **+ New Month** to copy KPI structure, weights, targets, Score formulas (`Col I`), `SF` (`Col M`), and dropdown validations from any previous month (`PASTE_NORMAL`), clearing old remarks and supervisor scores (`J:L`).
   - Strictly locks all columns except **Achievement (`Col H`)** on the current/latest month (respecting `ONE_OF_LIST` validations where configured).
+- **Report Tab (`Report` — Read-Only View & Print)**
+  - Displays the live formatted Google Sheet `Report` tab (merged cells, colors, fonts, borders, alignment, and visible rows/columns) in a strictly read-only paper preview.
+  - Supports **Print Report** (`@media print` with A4 Portrait/Landscape & Fit-to-width options) as well as **Google Sheet Print PDF** (`export?format=pdf&gid=...`) to print directly in Google Sheets' native print format.
 - **Supervision Mode (`Setup → Supervision (Supervisor)`)**
   - Supervisors can select **Supervision (Supervisor)** in **Setup** before opening a staff member's Google Sheet.
   - Locks all employee fields, Work Log entries, KPI Achievements (`Col H`), and row creation/completion/deletion across the app and backends, allowing edits **only** to Supervisor fields (**Tasks `Col T` Supervisor Comments** and **Perf Standard `Col K` Supervisor Score + `Col L` Supervisor Remarks**).
@@ -80,6 +83,8 @@ The app's public Web OAuth Client ID for `https://mbnepal.github.io` is already 
   - Entries starting at Row 10 (`B` Date, `C` Task, `D` Client/Project, `E` Time in minutes, `F` Status `On-going`/`Complete`, `G` Comments; `A` reserved for `ARRAYFORMULA`).
 - **`Data` tab (optional)**:
   - Populates dropdown choices (`C` Staff Name, `J` Department, `N` Priority, `O` Difficulty, `I` Schedule Status).
+- **`Report` tab (optional, read-only)**:
+  - Summary/printable monthly report tab rendered read-only with Google Sheet formatting and print / PDF export options.
 
 ## Running Tests
 
