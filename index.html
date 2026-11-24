@@ -149,13 +149,13 @@
     }
 
     .tab-btn {
-      border: 1.5px solid #cbd5e1;
-      background: #ffffff;
+      border: 1.5px solid var(--tab-border, #cbd5e1);
+      background: var(--tab-soft, #ffffff);
       padding: 9px 16px;
       border-radius: 10px;
       font-size: 13.5px;
       font-weight: 700;
-      color: #1e293b;
+      color: var(--tab-text, #1e293b);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
@@ -164,23 +164,60 @@
       transition: all 0.15s ease;
     }
     .tab-btn:hover {
-      color: var(--primary);
-      border-color: var(--primary);
-      background: #eff6ff;
+      color: #ffffff;
+      border-color: var(--tab-color, var(--primary));
+      background: var(--tab-color, var(--primary));
       transform: translateY(-1px);
-      box-shadow: 0 3px 8px rgba(37, 99, 235, 0.14);
+      box-shadow: 0 3px 10px var(--tab-shadow, rgba(37, 99, 235, 0.2));
     }
     .tab-btn.active {
-      background: var(--primary);
-      border-color: var(--primary);
+      background: var(--tab-color, var(--primary));
+      border-color: var(--tab-color, var(--primary));
       color: #ffffff;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+      box-shadow: 0 4px 12px var(--tab-shadow, rgba(37, 99, 235, 0.28));
     }
     .tab-btn.active:hover {
-      background: var(--primary-hover);
-      border-color: var(--primary-hover);
+      background: var(--tab-hover, var(--primary-hover));
+      border-color: var(--tab-hover, var(--primary-hover));
       color: #ffffff;
       transform: none;
+    }
+
+    .tab-btn.tab-tasks {
+      --tab-color: #2563eb;
+      --tab-hover: #1d4ed8;
+      --tab-soft: #eff6ff;
+      --tab-border: #93c5fd;
+      --tab-text: #1d4ed8;
+      --tab-badge-bg: #dbeafe;
+      --tab-shadow: rgba(37, 99, 235, 0.28);
+    }
+    .tab-btn.tab-worklog {
+      --tab-color: #059669;
+      --tab-hover: #047857;
+      --tab-soft: #ecfdf5;
+      --tab-border: #6ee7b7;
+      --tab-text: #047857;
+      --tab-badge-bg: #d1fae5;
+      --tab-shadow: rgba(5, 150, 105, 0.28);
+    }
+    .tab-btn.tab-perf {
+      --tab-color: #7c3aed;
+      --tab-hover: #6d28d9;
+      --tab-soft: #f5f3ff;
+      --tab-border: #c4b5fd;
+      --tab-text: #6d28d9;
+      --tab-badge-bg: #ede9fe;
+      --tab-shadow: rgba(124, 58, 237, 0.28);
+    }
+    .tab-btn.tab-report {
+      --tab-color: #ea580c;
+      --tab-hover: #c2410c;
+      --tab-soft: #fff7ed;
+      --tab-border: #fdba74;
+      --tab-text: #c2410c;
+      --tab-badge-bg: #ffedd5;
+      --tab-shadow: rgba(234, 88, 12, 0.28);
     }
 
     .tab-count {
@@ -188,15 +225,25 @@
       font-weight: 700;
       padding: 2px 8px;
       border-radius: 999px;
-      background: #eff6ff;
-      color: #1d4ed8;
-      border: 1px solid #bfdbfe;
+      background: var(--tab-badge-bg, #eff6ff);
+      color: var(--tab-text, #1d4ed8);
+      border: 1px solid var(--tab-border, #bfdbfe);
     }
+    .tab-btn:hover .tab-count,
     .tab-btn.active .tab-count {
       background: rgba(255, 255, 255, 0.22);
       color: #ffffff;
       border-color: rgba(255, 255, 255, 0.38);
     }
+
+    .btn-tab-tasks { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.24); }
+    .btn-tab-tasks:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+    .btn-tab-worklog { background: #059669; border-color: #059669; color: #fff; box-shadow: 0 2px 6px rgba(5, 150, 105, 0.24); }
+    .btn-tab-worklog:hover:not(:disabled) { background: #047857; border-color: #047857; }
+    .btn-tab-perf { background: #7c3aed; border-color: #7c3aed; color: #fff; box-shadow: 0 2px 6px rgba(124, 58, 237, 0.24); }
+    .btn-tab-perf:hover:not(:disabled) { background: #6d28d9; border-color: #6d28d9; }
+    .btn-tab-report { background: #ea580c; border-color: #ea580c; color: #fff; box-shadow: 0 2px 6px rgba(234, 88, 12, 0.24); }
+    .btn-tab-report:hover:not(:disabled) { background: #c2410c; border-color: #c2410c; }
 
     .btn {
       display: inline-flex;
@@ -1099,7 +1146,7 @@
         <button class="btn btn-google hidden" id="googleAuthBtn" onclick="handleTopbarAuthClick()" title="Sign in or switch Google account">Sign in with Google</button>
         <button class="btn" id="setupBtn" onclick="openSetupModal()" title="Switch or configure Google Sheet link">⚙ Setup</button>
         <button class="btn" id="refreshBtn" onclick="loadBootstrap(true)">↻ Refresh</button>
-        <button class="btn btn-primary" id="primaryNewBtn" onclick="openPrimaryNew()">+ New Record</button>
+        <button class="btn btn-tab-tasks" id="primaryNewBtn" onclick="openPrimaryNew()">+ New Task</button>
       </div>
     </div>
   </header>
@@ -1107,16 +1154,16 @@
   <nav class="tabs-bar">
     <div class="tabs-inner">
       <div class="tab-list">
-        <button class="tab-btn active" id="tabBtnTasks" onclick="switchTab('tasks')">
+        <button class="tab-btn tab-tasks active" id="tabBtnTasks" onclick="switchTab('tasks')">
           Tasks <span class="tab-count" id="tasksCountBadge">0</span>
         </button>
-        <button class="tab-btn" id="tabBtnWorklog" onclick="switchTab('worklogs')">
+        <button class="tab-btn tab-worklog" id="tabBtnWorklog" onclick="switchTab('worklogs')">
           Work Log <span class="tab-count" id="worklogCountBadge">0</span>
         </button>
-        <button class="tab-btn" id="tabBtnPerf" onclick="switchTab('perf')">
+        <button class="tab-btn tab-perf" id="tabBtnPerf" onclick="switchTab('perf')">
           Perf Standard <span class="tab-count" id="perfCountBadge">0</span>
         </button>
-        <button class="tab-btn" id="tabBtnReport" onclick="switchTab('report')">
+        <button class="tab-btn tab-report" id="tabBtnReport" onclick="switchTab('report')">
           Report <span class="tab-count" id="reportTabBadge">View</span>
         </button>
       </div>
@@ -1256,7 +1303,7 @@
       <div class="toolbar">
         <select id="perfMonthSelect" onchange="onPerfMonthChange()" style="min-width:220px; font-weight:700;"></select>
         <input class="input search-box" id="perfSearch" type="text" placeholder="Search criteria, description, source, remarks..." />
-        <button type="button" class="btn btn-primary" id="newPerfMonthBtn" onclick="openNewPerfMonthModal()">+ New Month</button>
+        <button type="button" class="btn btn-tab-perf" id="newPerfMonthBtn" onclick="openNewPerfMonthModal()">+ New Month</button>
         <button type="button" class="btn btn-success hidden" id="toolbarSavePerfBtn" onclick="savePerfAction()">✓ Save Achievements</button>
       </div>
 
@@ -1306,7 +1353,7 @@
           </div>
           <div class="report-controls">
             <button type="button" class="btn btn-sm" id="reportReloadBtn" onclick="loadReportGrid(true)">↻ Reload</button>
-            <button type="button" class="btn btn-sm btn-primary" id="reportPrintBtn" onclick="printReportSheet()" title="Print A4 Landscape with Gridlines in Google Sheet format">🖨 Print (Google Sheet)</button>
+            <button type="button" class="btn btn-sm btn-tab-report" id="reportPrintBtn" onclick="printReportSheet()" title="Print A4 Landscape with Gridlines in Google Sheet format">🖨 Print (Google Sheet)</button>
             <a class="btn btn-sm" id="reportPdfBtn" href="#" target="_blank" rel="noopener noreferrer" title="Open or download Google Sheet A4 Landscape PDF with Gridlines">📄 Google Sheet Print PDF</a>
             <a class="btn btn-sm hidden" id="reportOpenSheetBtn" href="#" target="_blank" rel="noopener noreferrer">Open Sheet ↗</a>
           </div>
@@ -2123,6 +2170,8 @@
       document.getElementById("perfView").classList.toggle("hidden", tab !== "perf");
       document.getElementById("reportView").classList.toggle("hidden", tab !== "report");
       const primaryBtn = document.getElementById("primaryNewBtn");
+      const btnTheme = tab === "tasks" ? "btn-tab-tasks" : tab === "worklogs" ? "btn-tab-worklog" : tab === "perf" ? "btn-tab-perf" : "btn-tab-report";
+      primaryBtn.className = `btn ${btnTheme}`;
       primaryBtn.classList.toggle("hidden", isSupervisorMode() || tab === "report");
       primaryBtn.textContent =
         tab === "tasks" ? "+ New Task" : tab === "worklogs" ? "+ New Work Log" : "+ New Month";
