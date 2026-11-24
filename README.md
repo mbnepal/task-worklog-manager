@@ -3,7 +3,7 @@
 A lightweight web application for **creating, editing, filtering, and safely deleting** records in the Employee Monthly Reporting Google Sheet (`Tasks` and `Work log` tabs), with multi-sheet switching via a built-in **Setup** modal.
 
 Works in **two modes** using the same interface:
-1. **Always-Online Static Mode (GitHub Pages):** Hosted at **https://mbnepal.github.io/task-worklog-manager/** — lets **every user sign in with their own Google account** directly in the browser (`Sign in with Google`) and enter their Google Sheet link (with an optional Apps Script Web App tab as an alternative).
+1. **Always-Online Static Mode (GitHub Pages):** Hosted at **https://mbnepal.github.io/task-worklog-manager/** — lets **every user sign in with their own Google account** directly in the browser (`Sign in with Google`) and enter their Google Sheet link.
 2. **Local Python Server Mode:** Run `python task_worklog_manager.py` locally with automatic `Work_Log_History.md` disk syncing.
 
 ## Features
@@ -44,17 +44,7 @@ The app's public Web OAuth Client ID for `https://mbnepal.github.io` is already 
 
 ---
 
-## Option B: Apps Script Web App (Alternative for Single Owner / Shared Admin Proxy)
-
-If you prefer a fixed owner-executed endpoint without Google Cloud OAuth setup:
-1. Inside **⚙ Setup**, switch to the **Apps Script Web App** tab.
-2. Open **[script.google.com](https://script.google.com/home/projects/create)** → **New project**, copy [`apps_script.gs`](./apps_script.gs) into `Code.gs`, and Save.
-3. Click **Deploy → New deployment → Web app** (**Execute as:** `Me`, **Who has access:** `Anyone`).
-4. Paste the `/exec` URL and optional Google Sheet link in **⚙ Setup**, then click **Test Connection** → **Save & Load Sheet**.
-
----
-
-## Option C: Run Locally with Python
+## Option B: Run Locally with Python
 
 ### Prerequisites
 - Python 3.10+

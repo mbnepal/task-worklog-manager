@@ -642,27 +642,8 @@
     .mode-switch {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      background: var(--surface-alt);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 4px;
-    }
-    .mode-tab {
-      border: 0;
-      background: transparent;
-      color: var(--muted);
-      padding: 8px 12px;
-      border-radius: 7px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .mode-tab.active {
-      background: var(--surface);
-      color: var(--primary);
-      box-shadow: var(--shadow);
+      flex: 1;
+      max-width: 100%;
     }
     .btn-google {
       background: #ffffff;
@@ -1258,12 +1239,9 @@
             Paste your Google Sheet link and click <strong>Test Connection</strong> to sign in with your Google account.
           </div>
 
-          <input type="checkbox" id="sf_use_oauth" class="hidden" checked />
-
           <div class="field">
             <label>
               <span id="sf_sheet_label">Your Google Sheet Link or ID <span class="req">*</span></span>
-              <span class="cell-sub hidden" id="sf_sheet_opt_hint" style="font-weight:400;">Optional in Apps Script mode (defaults to bound sheet)</span>
             </label>
             <input class="input" type="text" id="sf_sheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." />
           </div>
@@ -1283,7 +1261,7 @@
           </div>
 
           <details id="sf_advanced_details" style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; background:#f8fafc;">
-            <summary id="sf_advanced_summary" style="cursor:pointer; font-weight:700; color:var(--muted);">Advanced Options (Tab Names, Mode &amp; Reset)</summary>
+            <summary id="sf_advanced_summary" style="cursor:pointer; font-weight:700; color:var(--muted);">Advanced Options (Tab Names &amp; Reset)</summary>
             <div style="margin-top:12px; display:flex; flex-direction:column; gap:12px;">
               <div class="form-grid">
                 <div class="field">
@@ -1304,11 +1282,6 @@
                 </div>
               </div>
 
-              <div id="sf_mode_tabs" class="mode-switch">
-                <button type="button" class="mode-tab active" id="sf_tab_oauth" onclick="setBrowserAuthMode('oauth')">Sign in with Google (Multi-User)</button>
-                <button type="button" class="mode-tab" id="sf_tab_gas" onclick="setBrowserAuthMode('gas')">Apps Script Web App</button>
-              </div>
-
               <div id="sf_oauth_wrap" style="display:flex; flex-direction:column; gap:8px;">
                 <div class="field">
                   <label>Google OAuth Web Client ID</label>
@@ -1317,27 +1290,6 @@
                     <button type="button" class="btn btn-sm" onclick="copyTeamShareLink()" title="Copy shareable link with Client ID pre-filled">🔗 Copy Team Link</button>
                   </div>
                   <span class="cell-sub">Pre-configured for <code id="sf_origin_hint">https://mbnepal.github.io</code>. Leave as default for normal use.</span>
-                </div>
-              </div>
-
-              <div id="sf_gas_wrap" class="hidden" style="display:flex; flex-direction:column; gap:10px;">
-                <div style="background:#fff; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; color:#334155; line-height:1.55;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
-                    <strong>Apps Script Alternative (Fixed Owner Account)</strong>
-                    <button type="button" class="btn btn-xs btn-primary" onclick="copyAppsScriptCode()">📋 Copy apps_script.gs</button>
-                  </div>
-                  Deploy [`apps_script.gs`] at <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><strong>script.google.com</strong></a> (Execute as: <em>Me</em>, Who has access: <em>Anyone</em>) and paste the <code>/exec</code> URL below.
-                </div>
-
-                <div class="form-grid">
-                  <div class="field">
-                    <label>Apps Script Web App URL <span class="req">*</span></label>
-                    <input class="input" type="text" id="sf_gas_url" placeholder="https://script.google.com/macros/s/.../exec" />
-                  </div>
-                  <div class="field">
-                    <label>Optional PIN</label>
-                    <input class="input" type="password" id="sf_gas_pin" placeholder="Leave blank if none set" />
-                  </div>
                 </div>
               </div>
 
@@ -2881,48 +2833,23 @@
     // --- SETUP LOGIC ---
     function syncModeUi() {
       const isBrowser = state.appMode === "browser";
-      const useOauth = isBrowser && document.getElementById("sf_use_oauth").checked;
       const hasClient = Boolean((document.getElementById("sf_client_id").value || "").trim());
 
-      document.getElementById("sf_mode_tabs").classList.toggle("hidden", !isBrowser);
-      document.getElementById("sf_tab_oauth").classList.toggle("active", useOauth);
-      document.getElementById("sf_tab_gas").classList.toggle("active", isBrowser && !useOauth);
-      document.getElementById("sf_oauth_wrap").classList.toggle("hidden", !useOauth);
-      document.getElementById("sf_gas_wrap").classList.toggle("hidden", !isBrowser || useOauth);
-      document.getElementById("sf_sheet_opt_hint").classList.toggle("hidden", !isBrowser || useOauth);
-      document.getElementById("sf_sheet_label").innerHTML =
-        isBrowser && !useOauth
-          ? "Google Sheet Link or ID (Optional)"
-          : 'Your Google Sheet Link or ID <span class="req">*</span>';
-
-      const showReauth = !isBrowser || (useOauth && state.setup.has_token);
-      document.getElementById("reauthBtn").classList.toggle("hidden", !showReauth);
+      document.getElementById("sf_oauth_wrap").classList.toggle("hidden", !isBrowser);
+      document.getElementById("reauthBtn").classList.toggle("hidden", !(!isBrowser || state.setup.has_token));
       document.getElementById("reauthBtn").textContent = "Switch Google Account";
-      document.getElementById("signOutBtn").classList.toggle("hidden", !(isBrowser && useOauth && state.setup.has_token));
+      document.getElementById("signOutBtn").classList.toggle("hidden", !(isBrowser && state.setup.has_token));
       document.getElementById("resetSetupBtn").classList.toggle("hidden", !isBrowser);
       document.getElementById("wf_sync_md_wrap").classList.toggle("hidden", isBrowser);
       document.getElementById("sf_origin_hint").textContent = window.location.origin;
 
-      if (isBrowser && useOauth && !hasClient) {
+      if (isBrowser && !hasClient) {
         document.getElementById("sf_advanced_details").open = true;
       }
 
       document.getElementById("setupStorageHint").innerHTML = isBrowser
         ? "Saved in your browser — each user signs in with their own Google account"
         : "Stored locally in <code>config/task_worklog_config.json</code>";
-    }
-
-    function setBrowserAuthMode(mode) {
-      document.getElementById("sf_use_oauth").checked = mode === "oauth";
-      syncModeUi();
-      document.getElementById("setupCredsBanner").classList.add("hidden");
-      document.getElementById("setupTestStatus").classList.add("hidden");
-    }
-
-    function toggleBrowserAuthMode() {
-      syncModeUi();
-      document.getElementById("setupCredsBanner").classList.add("hidden");
-      document.getElementById("setupTestStatus").classList.add("hidden");
     }
 
     async function copyTeamShareLink() {
@@ -2941,18 +2868,6 @@
       }
     }
 
-    async function copyAppsScriptCode() {
-      try {
-        const res = await fetch("apps_script.gs", { cache: "no-store" });
-        if (!res.ok) throw new Error("Could not load apps_script.gs");
-        const code = await res.text();
-        await navigator.clipboard.writeText(code);
-        showToast("Copied apps_script.gs code to clipboard!", "success");
-      } catch (err) {
-        showToast(err.message || "Failed to copy apps_script.gs", "error");
-      }
-    }
-
     async function openSetupModal() {
       const statusBox = document.getElementById("setupTestStatus");
       statusBox.classList.add("hidden");
@@ -2960,14 +2875,10 @@
       try {
         const cfg = await apiFetch("/api/setup");
         state.setup = Object.assign({}, state.setup, cfg);
-        const useOauth = state.appMode === "browser" && cfg.auth_mode !== "gas";
-        document.getElementById("sf_use_oauth").checked = useOauth;
-        document.getElementById("sf_gas_url").value = cfg.gas_url || "";
-        document.getElementById("sf_gas_pin").value = cfg.gas_pin || "";
         document.getElementById("sf_client_id").value = cfg.client_id || "";
-        document.getElementById("sf_advanced_details").open = state.appMode === "browser" && (!useOauth || !cfg.client_id);
+        document.getElementById("sf_advanced_details").open = state.appMode === "browser" && !cfg.client_id;
         document.getElementById("sf_sheet_url").value =
-          cfg.sheet_url || cfg.url || (cfg.spreadsheet_id && (state.appMode === "local" || useOauth) ? `https://docs.google.com/spreadsheets/d/${cfg.spreadsheet_id}/edit` : "");
+          cfg.sheet_url || cfg.url || (cfg.spreadsheet_id ? `https://docs.google.com/spreadsheets/d/${cfg.spreadsheet_id}/edit` : "");
         document.getElementById("sf_tasks_tab").value = cfg.tasks_tab || "Tasks";
         document.getElementById("sf_worklog_tab").value = cfg.worklog_tab || "Work log";
         document.getElementById("sf_data_tab").value = cfg.data_tab || "Data";
@@ -2976,13 +2887,7 @@
 
         const credsBanner = document.getElementById("setupCredsBanner");
         if (state.appMode === "browser") {
-          if (!useOauth) {
-            credsBanner.className = cfg.gas_url ? "check-banner ok" : "check-banner warn";
-            credsBanner.textContent = cfg.gas_url
-              ? "Apps Script Web App URL configured ✓"
-              : "Paste your Apps Script Web App URL under Advanced Options above.";
-            credsBanner.classList.remove("hidden");
-          } else if (!cfg.client_id) {
+          if (!cfg.client_id) {
             credsBanner.className = "check-banner warn";
             credsBanner.textContent = `Enter a Google OAuth Web Client ID in Advanced Options above (origin: ${window.location.origin}).`;
             credsBanner.classList.remove("hidden");
@@ -3006,12 +2911,12 @@
           credsBanner.classList.remove("hidden");
         }
 
-        renderSavedSheets(cfg.spreadsheet_id || cfg.gas_url);
+        renderSavedSheets(cfg.spreadsheet_id);
       } catch (err) {
         showToast(err.message, "error");
       }
       openModal("setupModalBackdrop");
-      const focusId = state.appMode === "browser" && document.getElementById("sf_use_oauth").checked && !(document.getElementById("sf_client_id").value || "").trim()
+      const focusId = state.appMode === "browser" && !(document.getElementById("sf_client_id").value || "").trim()
         ? "sf_client_id"
         : "sf_sheet_url";
       setTimeout(() => document.getElementById(focusId).focus(), 40);
@@ -3021,9 +2926,6 @@
       try {
         const data = await apiFetch("/api/setup/reset", { method: "POST", body: "{}" });
         applyBootstrap(data);
-        document.getElementById("sf_use_oauth").checked = true;
-        document.getElementById("sf_gas_url").value = "";
-        document.getElementById("sf_gas_pin").value = "";
         document.getElementById("sf_client_id").value = data.setup?.client_id || "";
         document.getElementById("sf_sheet_url").value = "";
         document.getElementById("setupCredsBanner").classList.add("hidden");
@@ -3038,7 +2940,7 @@
     }
 
     function renderSavedSheets(activeId) {
-      const list = state.setup.saved_sheets || [];
+      const list = (state.setup.saved_sheets || []).filter(s => s.spreadsheet_id);
       const section = document.getElementById("savedSheetsSection");
       const wrap = document.getElementById("savedSheetsList");
       if (!list.length) {
@@ -3048,8 +2950,8 @@
       }
       section.classList.remove("hidden");
       wrap.innerHTML = list.map(s => {
-        const key = s.spreadsheet_id || s.gas_url;
-        const isActive = key === activeId || (s.gas_url && s.gas_url === state.setup.gas_url && s.spreadsheet_id === state.spreadsheet.id);
+        const key = s.spreadsheet_id;
+        const isActive = key === activeId || s.spreadsheet_id === state.spreadsheet.id;
         const canRemove = !isActive;
         return `
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid ${isActive ? "var(--primary)" : "var(--border)"}; background:${isActive ? "var(--primary-soft)" : "var(--surface-alt)"}; border-radius:8px;">
@@ -3059,7 +2961,7 @@
                 ${isActive ? `<span class="badge badge-blue" style="margin-left:6px;">Active</span>` : ""}
               </div>
               <div class="cell-sub mono" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                ${s.employee_name ? escapeHtml(s.employee_name) + " • " : ""}${escapeHtml(s.spreadsheet_id || s.gas_url)}
+                ${s.employee_name ? escapeHtml(s.employee_name) + " • " : ""}${escapeHtml(s.spreadsheet_id)}
               </div>
             </div>
             <div style="display:flex; gap:6px; flex-shrink:0;">
@@ -3073,11 +2975,8 @@
 
     function _getSetupFormPayload() {
       const isBrowser = state.appMode === "browser";
-      const useOauth = isBrowser && document.getElementById("sf_use_oauth").checked;
       return {
-        auth_mode: isBrowser ? (useOauth ? "oauth" : "gas") : "local",
-        gas_url: document.getElementById("sf_gas_url").value,
-        gas_pin: document.getElementById("sf_gas_pin").value,
+        auth_mode: isBrowser ? "oauth" : "local",
         client_id: document.getElementById("sf_client_id").value,
         sheet_url: document.getElementById("sf_sheet_url").value,
         tasks_tab: document.getElementById("sf_tasks_tab").value,
@@ -3161,13 +3060,9 @@
     }
 
     async function quickSwitchSheet(key) {
-      const item = (state.setup.saved_sheets || []).find(s => (s.spreadsheet_id || s.gas_url) === key);
+      const item = (state.setup.saved_sheets || []).find(s => s.spreadsheet_id === key);
       if (!item) return;
       if (state.appMode === "browser") {
-        const useOauth = item.auth_mode !== "gas";
-        document.getElementById("sf_use_oauth").checked = useOauth;
-        document.getElementById("sf_gas_url").value = item.gas_url || "";
-        document.getElementById("sf_gas_pin").value = item.gas_pin || "";
         document.getElementById("sf_client_id").value = item.client_id || state.setup.client_id || "";
         syncModeUi();
       }

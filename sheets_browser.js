@@ -1,7 +1,6 @@
 /**
  * Browser-side Google Sheets adapter for static GitHub Pages hosting.
- * Primary mode: Sign in with Google (Google Identity Services OAuth + Sheets REST API v4).
- * Alternative mode: Google Apps Script Web App URL.
+ * Uses Google Identity Services (per-user Sign in with Google) + Sheets REST API v4.
  */
 (function (global) {
   "use strict";
@@ -105,8 +104,6 @@
   function loadBrowserConfig() {
     const base = {
       auth_mode: "oauth",
-      gas_url: "",
-      gas_pin: "",
       client_id: DEFAULT_WEB_CLIENT_ID,
       spreadsheet_id: "",
       sheet_url: "",
@@ -116,30 +113,49 @@
       perf_tab: DEFAULT_TABS.perf,
       saved_sheets: [],
     };
+    let migrated = false;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
+          if ("gas_url" in parsed || "gas_pin" in parsed || (parsed.auth_mode && parsed.auth_mode !== "oauth")) {
+            migrated = true;
+          }
           Object.assign(base, parsed);
         }
       }
     } catch (_) {}
 
-    if (base.auth_mode !== "oauth" && !String(base.gas_url || "").trim()) {
-      base.auth_mode = "oauth";
-    }
+    delete base.gas_url;
+    delete base.gas_pin;
+    base.auth_mode = "oauth";
     base.client_id = resolveClientId(base.client_id);
+    if (Array.isArray(base.saved_sheets)) {
+      base.saved_sheets = base.saved_sheets
+        .filter(s => s && typeof s === "object")
+        .map(s => {
+          if ("gas_url" in s || "gas_pin" in s || (s.auth_mode && s.auth_mode !== "oauth")) {
+            migrated = true;
+          }
+          const cleaned = { ...s, auth_mode: "oauth" };
+          delete cleaned.gas_url;
+          delete cleaned.gas_pin;
+          return cleaned;
+        });
+    } else {
+      base.saved_sheets = [];
+    }
+    if (migrated) {
+      try {
+        saveBrowserConfig(base);
+      } catch (_) {}
+    }
 
     const qs = new URLSearchParams(window.location.search);
-    const qGas = (qs.get("gas_url") || "").trim();
     const qClient = (qs.get("client_id") || "").trim();
     const qSheet = (qs.get("sheet") || "").trim();
-    if (qGas) {
-      base.auth_mode = "gas";
-      base.gas_url = qGas;
-    } else if (qClient) {
-      base.auth_mode = "oauth";
+    if (qClient) {
       base.client_id = qClient;
     }
     if (qSheet) {
@@ -161,8 +177,8 @@
   }
 
   function upsertSavedSheet(cfg, entry) {
-    const key = entry.spreadsheet_id || entry.gas_url;
-    const saved = (cfg.saved_sheets || []).filter(s => (s.spreadsheet_id || s.gas_url) !== key);
+    const key = entry.spreadsheet_id;
+    const saved = (cfg.saved_sheets || []).filter(s => s.spreadsheet_id && s.spreadsheet_id !== key);
     saved.unshift(entry);
     cfg.saved_sheets = saved.slice(0, 20);
   }
@@ -174,15 +190,6 @@
     if (m) return m[1];
     if (/^[a-zA-Z0-9-_]{20,}$/.test(s)) return s;
     throw new Error("Invalid Google Sheet link or Spreadsheet ID. Paste the full Google Sheets URL or its ID.");
-  }
-
-  function validateGasUrl(url) {
-    const u = String(url || "").trim();
-    if (!u) throw new Error("Apps Script Web App URL is required.");
-    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec(\?.*)?$/i.test(u)) {
-      throw new Error("Invalid Apps Script URL. It should start with https://script.google.com/macros/s/... and end with /exec.");
-    }
-    return u;
   }
 
   function quoteSheet(title) {
@@ -265,49 +272,6 @@
     if (v === "complete" || v === "completed") return "Complete";
     if (v === "on-going" || v === "ongoing" || v === "in progress") return "On-going";
     throw new Error("Status must be 'On-going' or 'Complete'.");
-  }
-
-  // --- Apps Script Mode ---
-  async function gasPost(gasUrl, bodyObj) {
-    const url = validateGasUrl(gasUrl);
-    let res;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify(bodyObj),
-      });
-    } catch (_) {
-      throw new Error(
-        "Could not connect to Apps Script or access that Google Sheet (blocked/permission denied). Ensure the Apps Script deployer's Google account has Editor access to this Google Sheet and the Web App is deployed with 'Who has access: Anyone'."
-      );
-    }
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (_) {
-      throw new Error(
-        "Unexpected response from Apps Script Web App. Ensure you deployed as Web app with 'Who has access: Anyone' and copied the /exec URL."
-      );
-    }
-    if (!data || data.ok === false) {
-      const err = new Error(data?.error || "Apps Script request failed.");
-      if (data?.status === 409) err.status = 409;
-      throw err;
-    }
-    return data;
-  }
-
-  function gasContext(cfg) {
-    return {
-      pin: cfg.gas_pin || "",
-      sheet_url: cfg.sheet_url || cfg.spreadsheet_id || "",
-      tasks_tab: cfg.tasks_tab || DEFAULT_TABS.tasks,
-      worklog_tab: cfg.worklog_tab || DEFAULT_TABS.worklog,
-      data_tab: cfg.data_tab || DEFAULT_TABS.data,
-      perf_tab: cfg.perf_tab || DEFAULT_TABS.perf,
-    };
   }
 
   // --- Google Sign-In (OAuth) Mode ---
@@ -741,13 +705,10 @@
 
   function buildSetupPayload(cfg, sheetUrl = "") {
     const cid = resolveClientId(cfg.client_id);
-    const mode = cfg.auth_mode || "oauth";
-    const signedIn = mode === "oauth" ? loadSessionToken(cid) : Boolean(cfg.gas_url);
+    const signedIn = loadSessionToken(cid);
     return {
       mode: "browser",
-      auth_mode: mode,
-      gas_url: cfg.gas_url || "",
-      gas_pin: cfg.gas_pin || "",
+      auth_mode: "oauth",
       client_id: cid,
       has_default_client_id: Boolean(DEFAULT_WEB_CLIENT_ID),
       spreadsheet_id: cfg.spreadsheet_id || "",
@@ -758,11 +719,11 @@
       data_tab: cfg.data_tab || DEFAULT_TABS.data,
       perf_tab: cfg.perf_tab || DEFAULT_TABS.perf,
       sync_md_default: false,
-      saved_sheets: cfg.saved_sheets || [],
-      has_credentials: mode === "oauth" ? Boolean(cid) : Boolean(cfg.gas_url),
+      saved_sheets: (cfg.saved_sheets || []).filter(s => s.spreadsheet_id),
+      has_credentials: Boolean(cid),
       has_token: signedIn,
-      user_email: mode === "oauth" && signedIn ? userEmail : "",
-      user_name: mode === "oauth" && signedIn ? userName : "",
+      user_email: signedIn ? userEmail : "",
+      user_name: signedIn ? userName : "",
     };
   }
 
@@ -800,23 +761,6 @@
 
   async function fetchBootstrapData(cfgOverride = null) {
     const cfg = cfgOverride || loadBrowserConfig();
-    if (cfg.auth_mode !== "oauth") {
-      if (!cfg.gas_url) return emptyNeedsSetupResponse(cfg);
-      const data = await gasPost(cfg.gas_url, { action: "bootstrap", ...gasContext(cfg) });
-      const mergedSetup = buildSetupPayload(cfg, data.spreadsheet?.url || "");
-      Object.assign(mergedSetup, data.setup || {}, {
-        mode: "browser",
-        auth_mode: "gas",
-        gas_url: cfg.gas_url,
-        gas_pin: cfg.gas_pin || "",
-        saved_sheets: cfg.saved_sheets || [],
-        has_credentials: true,
-        has_token: true,
-      });
-      data.setup = mergedSetup;
-      return data;
-    }
-
     const cid = resolveClientId(cfg.client_id);
     const sid = String(cfg.spreadsheet_id || "").trim();
     if (!sid || !cid) return emptyNeedsSetupResponse(cfg);
@@ -1092,27 +1036,10 @@
 
   async function probeSetup(payload) {
     const cfg = loadBrowserConfig();
-    const authMode = payload.auth_mode || cfg.auth_mode || "oauth";
     const tasksTab = String(payload.tasks_tab || DEFAULT_TABS.tasks).trim() || DEFAULT_TABS.tasks;
     const worklogTab = String(payload.worklog_tab || DEFAULT_TABS.worklog).trim() || DEFAULT_TABS.worklog;
     const dataTab = String(payload.data_tab || DEFAULT_TABS.data).trim() || DEFAULT_TABS.data;
     const perfTab = String(payload.perf_tab || DEFAULT_TABS.perf).trim() || DEFAULT_TABS.perf;
-
-    if (authMode !== "oauth") {
-      const gasUrl = validateGasUrl(payload.gas_url);
-      const pin = String(payload.gas_pin || "").trim();
-      const sheetUrl = String(payload.sheet_url || "").trim();
-      const info = await gasPost(gasUrl, {
-        action: "setup_test",
-        pin,
-        sheet_url: sheetUrl,
-        tasks_tab: tasksTab,
-        worklog_tab: worklogTab,
-        data_tab: dataTab,
-        perf_tab: perfTab,
-      });
-      return { ...info, auth_mode: "gas", gas_url: gasUrl, gas_pin: pin, sheet_url: sheetUrl };
-    }
 
     const sid = parseSpreadsheetId(payload.sheet_url || payload.spreadsheet_id || "");
     const clientId = resolveClientId(payload.client_id || cfg.client_id);
@@ -1172,25 +1099,18 @@
     }
     if (url === "/api/setup" && method === "POST") {
       const info = await probeSetup(payload);
-      cfg.auth_mode = info.auth_mode;
-      if (info.auth_mode === "gas") {
-        cfg.gas_url = info.gas_url;
-        cfg.gas_pin = info.gas_pin || "";
-        cfg.sheet_url = info.sheet_url || "";
-        cfg.spreadsheet_id = info.spreadsheet_id || "";
-      } else {
-        cfg.client_id = info.client_id;
-        cfg.spreadsheet_id = info.spreadsheet_id;
-        cfg.sheet_url = info.url || "";
-      }
+      cfg.auth_mode = "oauth";
+      delete cfg.gas_url;
+      delete cfg.gas_pin;
+      cfg.client_id = info.client_id;
+      cfg.spreadsheet_id = info.spreadsheet_id;
+      cfg.sheet_url = info.url || "";
       cfg.tasks_tab = info.tasks_tab;
       cfg.worklog_tab = info.worklog_tab;
       cfg.data_tab = info.data_tab || DEFAULT_TABS.data;
       cfg.perf_tab = info.perf_tab || DEFAULT_TABS.perf;
       upsertSavedSheet(cfg, {
-        auth_mode: cfg.auth_mode,
-        gas_url: cfg.gas_url || "",
-        gas_pin: cfg.gas_pin || "",
+        auth_mode: "oauth",
         client_id: cfg.client_id || "",
         spreadsheet_id: info.spreadsheet_id || "",
         sheet_url: cfg.sheet_url || "",
@@ -1209,7 +1129,7 @@
       const sid = String(payload.spreadsheet_id || "").trim();
       if (!sid) throw new Error("spreadsheet_id is required.");
       if (sid === cfg.spreadsheet_id) throw new Error("Cannot remove the currently active sheet.");
-      cfg.saved_sheets = (cfg.saved_sheets || []).filter(s => (s.spreadsheet_id || s.gas_url) !== sid);
+      cfg.saved_sheets = (cfg.saved_sheets || []).filter(s => s.spreadsheet_id !== sid);
       saveBrowserConfig(cfg);
       return { ok: true, saved_sheets: cfg.saved_sheets };
     }
@@ -1225,76 +1145,6 @@
     if (url === "/api/setup/signout" && method === "POST") {
       signOutGoogle();
       return await fetchBootstrapData(cfg);
-    }
-
-    // --- Apps Script CRUD routing ---
-    if (cfg.auth_mode !== "oauth") {
-      if (!cfg.gas_url) throw new Error("No Apps Script Web App URL configured. Open Setup first.");
-      const baseCtx = gasContext(cfg);
-
-      if (url === "/api/tasks" && method === "POST") {
-        validateAndPrepareTask(payload);
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "create_task" });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      let mTask = url.match(/^\/api\/tasks\/(\d+)$/);
-      if (mTask && method === "PUT") {
-        validateAndPrepareTask(payload);
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "update_task", row: Number(mTask[1]) });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      if (mTask && method === "DELETE") {
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "delete_task", row: Number(mTask[1]) });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      if (url === "/api/worklogs" && method === "POST") {
-        validateAndPrepareWorklog(payload);
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "create_worklog" });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      let mWl = url.match(/^\/api\/worklogs\/(\d+)$/);
-      if (mWl && method === "PUT") {
-        validateAndPrepareWorklog(payload);
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "update_worklog", row: Number(mWl[1]) });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      if (mWl && method === "DELETE") {
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "delete_worklog", row: Number(mWl[1]) });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      if (url === "/api/perf/months" && method === "POST") {
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "create_perf_month" });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      if (url === "/api/perf/achievements" && method === "PUT") {
-        const res = await gasPost(cfg.gas_url, { ...payload, ...baseCtx, action: "update_perf_achievements" });
-        res.setup = Object.assign(buildSetupPayload(cfg, res.spreadsheet?.url || ""), res.setup || {}, {
-          mode: "browser", auth_mode: "gas", gas_url: cfg.gas_url, gas_pin: cfg.gas_pin || "", saved_sheets: cfg.saved_sheets || [],
-        });
-        return res;
-      }
-      throw new Error(`Unsupported API request: ${method} ${url}`);
     }
 
     // --- OAuth REST API v4 CRUD routing ---
