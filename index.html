@@ -1281,22 +1281,9 @@
             </div>
           </div>
           <div class="report-controls">
-            <select class="select" id="reportOrientation" onchange="updateReportPrintLinks()" title="Print format (uses Google Sheet format when printing)">
-              <option value="sheet_default">Print: Google Sheet Default</option>
-              <option value="landscape">Print: Landscape (A4 Fit)</option>
-              <option value="portrait">Print: Portrait (A4 Fit)</option>
-            </select>
-            <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); cursor:pointer;">
-              <input type="checkbox" id="reportFitWidth" checked onchange="syncReportTableOptions()" />
-              Fit width
-            </label>
-            <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); cursor:pointer;">
-              <input type="checkbox" id="reportGridlines" onchange="syncReportTableOptions()" />
-              Gridlines
-            </label>
             <button type="button" class="btn btn-sm" id="reportReloadBtn" onclick="loadReportGrid(true)">↻ Reload</button>
-            <button type="button" class="btn btn-sm btn-primary" id="reportPrintBtn" onclick="printReportSheet()">🖨 Print (Google Sheet)</button>
-            <a class="btn btn-sm" id="reportPdfBtn" href="#" target="_blank" rel="noopener noreferrer" title="Open or download Google Sheet's native print PDF format">📄 Google Sheet Print PDF</a>
+            <button type="button" class="btn btn-sm btn-primary" id="reportPrintBtn" onclick="printReportSheet()" title="Print A4 Landscape with Gridlines in Google Sheet format">🖨 Print (Google Sheet)</button>
+            <a class="btn btn-sm" id="reportPdfBtn" href="#" target="_blank" rel="noopener noreferrer" title="Open or download Google Sheet A4 Landscape PDF with Gridlines">📄 Google Sheet Print PDF</a>
             <a class="btn btn-sm hidden" id="reportOpenSheetBtn" href="#" target="_blank" rel="noopener noreferrer">Open Sheet ↗</a>
           </div>
         </div>
@@ -3988,31 +3975,17 @@
     document.getElementById("perfSearch").addEventListener("input", renderPerfStandard);
 
     // --- READ-ONLY PRINTABLE REPORT TAB (H7/I7 Filter, Web View, Google Sheet Print) ---
-    function getReportOrientation() {
-      const val = document.getElementById("reportOrientation").value;
-      return val === "landscape" || val === "portrait" ? val : "sheet_default";
-    }
-
     function getReportExportPdfUrl() {
       const base = state.reportGrid?.export_pdf_base || state.report?.export_pdf_base || "";
       if (!base) return "";
-      const orient = getReportOrientation();
       const authParam = state.setup?.user_email ? `&authuser=${encodeURIComponent(state.setup.user_email)}` : "";
-      if (orient === "sheet_default") {
-        return `${base}${authParam}`;
-      }
-      const isPortrait = orient === "portrait";
-      const fitW = document.getElementById("reportFitWidth").checked;
-      const showGrid = document.getElementById("reportGridlines").checked;
-      return `${base}&size=A4&portrait=${isPortrait}&fitw=${fitW}&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=${showGrid}&fzr=false${authParam}`;
+      return `${base}&size=A4&portrait=false&fitw=false&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=true&fzr=false${authParam}`;
     }
 
     function syncReportPrintPageRule() {
       const styleEl = document.getElementById("reportPrintStyle");
       if (!styleEl) return;
-      const orient = getReportOrientation();
-      const sizeRule = orient === "sheet_default" ? "auto" : `A4 ${orient}`;
-      styleEl.textContent = `@media print { @page { size: ${sizeRule}; margin: 8mm; } }`;
+      styleEl.textContent = "@media print { @page { size: A4 landscape; margin: 8mm; } }";
     }
 
     function setReportViewMode(mode) {
@@ -4029,8 +4002,8 @@
     function syncReportTableOptions() {
       const table = document.querySelector("#reportGridWrap .report-sheet-table");
       if (table) {
-        table.classList.toggle("fit-width", document.getElementById("reportFitWidth").checked);
-        table.classList.toggle("show-gridlines", document.getElementById("reportGridlines").checked);
+        table.classList.remove("fit-width");
+        table.classList.add("show-gridlines");
       }
       const pdfBtn = document.getElementById("reportPdfBtn");
       const pdfUrl = getReportExportPdfUrl();
