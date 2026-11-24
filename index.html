@@ -654,6 +654,45 @@
     }
     .chip-btn:hover { background: #e2e8f0; }
 
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .polish-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-polish {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 999px;
+      border: 1px solid #c7d2fe;
+      background: #eef2ff;
+      color: #4338ca;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    .btn-polish:hover { background: #e0e7ff; border-color: #a5b4fc; }
+    .btn-polish-undo {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 1px 4px;
+      text-decoration: underline;
+    }
+    .btn-polish-undo:hover { color: var(--text); }
+
     .check-banner {
       padding: 10px 12px;
       border-radius: 8px;
@@ -1396,7 +1435,13 @@
               <select id="tf_difficulty" required></select>
             </div>
             <div class="field span-3">
-              <label>Detail of Task with Purpose <span class="req">*</span></label>
+              <div class="field-label-row">
+                <label>Detail of Task with Purpose <span class="req">*</span></label>
+                <span class="polish-actions" id="tf_detail_polish_wrap">
+                  <button type="button" class="btn-polish-undo hidden" id="tf_detail_undo" onclick="undoPolishTextField('tf_detail')">Undo</button>
+                  <button type="button" class="btn-polish" onclick="polishTextField('tf_detail', 'task')" title="Fix spelling, grammar, and phrasing">✨ Polish</button>
+                </span>
+              </div>
               <textarea class="input" id="tf_detail" rows="3" placeholder="Describe the task and why it is necessary..." required></textarea>
             </div>
             <div class="field span-3">
@@ -1525,7 +1570,13 @@
           </div>
 
           <div class="field">
-            <label>Task Description <span class="req">*</span></label>
+            <div class="field-label-row">
+              <label>Task Description <span class="req">*</span></label>
+              <span class="polish-actions" id="wf_task_polish_wrap">
+                <button type="button" class="btn-polish-undo hidden" id="wf_task_undo" onclick="undoPolishTextField('wf_task')">Undo</button>
+                <button type="button" class="btn-polish" onclick="polishTextField('wf_task', 'worklog')" title="Fix spelling, grammar, and phrasing">✨ Polish</button>
+              </span>
+            </div>
             <textarea class="input" id="wf_task" rows="4" placeholder="Describe what was worked on clearly..." required></textarea>
           </div>
 
@@ -3125,6 +3176,8 @@
       document.getElementById("tf_allow_partial").checked = false;
       document.getElementById("tf_allow_partial_wrap").classList.toggle("hidden", isSup);
       document.getElementById("taskQuickFillBtn").classList.toggle("hidden", isSup);
+      document.getElementById("tf_detail_polish_wrap").classList.toggle("hidden", isSup);
+      resetPolishState("tf_detail");
 
       TASK_EMPLOYEE_FIELD_IDS.forEach(id => {
         document.getElementById(id).disabled = isSup;
@@ -3358,6 +3411,7 @@
       document.getElementById("wf_time_minutes").value = w ? w.time_minutes : "30";
       document.getElementById("wf_comments").value = w ? w.comments : "";
       document.getElementById("wf_sync_md").checked = !!state.setup.sync_md_default;
+      resetPolishState("wf_task");
 
       openModal("wlModalBackdrop");
       setTimeout(() => document.getElementById(w ? "wf_task" : "wf_project").focus(), 40);
@@ -3380,6 +3434,139 @@
 
     function setWlMinutes(mins) {
       document.getElementById("wf_time_minutes").value = mins;
+    }
+
+    const POLISH_REPLACEMENTS = {
+      "pls": "please", "plz": "please", "msg": "message", "chk": "check",
+      "upd": "update", "req": "request", "info": "information", "dept": "department",
+      "proj": "project", "rpt": "report", "mgmt": "management", "impl": "implement",
+      "doc": "documentation", "docs": "documentation", "config": "configuration",
+      "verif": "verification", "b/w": "between", "thru": "through", "asap": "promptly",
+      "proffetionalise": "professionalize", "proffesionalize": "professionalize",
+      "profesionalize": "professionalize", "sighin": "sign-in", "avilable": "available",
+      "availble": "available", "recieve": "receive", "seperate": "separate",
+      "occured": "occurred", "definately": "definitely", "calender": "calendar",
+      "documnet": "document", "docuemnt": "document", "reconcilation": "reconciliation",
+      "managment": "management", "sucessful": "successful", "succesful": "successful",
+      "complet": "completed", "completd": "completed", "pendng": "pending",
+      "wrking": "working", "issu": "issue", "isue": "issue", "errror": "error",
+      "databse": "database", "schedular": "scheduler", "performence": "performance",
+      "acheivement": "achievement", "supervison": "supervision", "teh": "the",
+      "nad": "and", "wiht": "with", "frm": "from", "forr": "for",
+      "improvment": "improvement", "upgarde": "upgrade", "intial": "initial",
+      "verison": "version", "transction": "transaction", "statment": "statement",
+      "acount": "account", "cusotmer": "customer", "custmer": "customer",
+      "brnach": "branch", "oauth": "OAuth", "i'm": "I am", "im": "I am", "dont": "do not",
+      "cant": "cannot", "wont": "will not", "didnt": "did not", "isnt": "is not",
+      "wasnt": "was not", "werent": "were not", "havent": "have not"
+    };
+
+    const POLISH_ACRONYMS = new Set([
+      "sql", "api", "pdf", "ui", "ux", "qa", "uat", "kpi", "kpis", "gl",
+      "sms", "otp", "id", "sla", "csv", "html", "css", "js", "url", "md", "a4"
+    ]);
+
+    const POLISH_STARTERS = [
+      [/^i\s+worked\s+on\s+/i, "Worked on "],
+      [/^worked\s+on\s+/i, "Worked on "],
+      [/^i\s+fixed\s+/i, "Resolved "],
+      [/^fixed\s+/i, "Resolved "],
+      [/^fix\s+/i, "Resolve "],
+      [/^i\s+checked\s+/i, "Reviewed and verified "],
+      [/^checked\s+/i, "Reviewed and verified "],
+      [/^check\s+/i, "Review and verify "],
+      [/^i\s+updated\s+/i, "Updated and verified "],
+      [/^updated\s+/i, "Updated and verified "],
+      [/^update\s+/i, "Update and verify "],
+      [/^i\s+added\s+/i, "Implemented "],
+      [/^added\s+/i, "Implemented "],
+      [/^add\s+/i, "Implement "],
+      [/^i\s+created\s+/i, "Created and configured "],
+      [/^created\s+/i, "Created and configured "],
+      [/^create\s+/i, "Create and configure "],
+      [/^i\s+tested\s+/i, "Tested and validated "],
+      [/^tested\s+/i, "Tested and validated "],
+      [/^test\s+/i, "Test and validate "],
+      [/^i\s+sent\s+/i, "Prepared and sent "],
+      [/^sent\s+/i, "Prepared and sent "],
+      [/^send\s+/i, "Prepare and send "],
+      [/^(?:i\s+)?(?:talked|spoke|called)\s+with\s+/i, "Coordinated with "],
+      [/^(?:talk|call)\s+with\s+/i, "Coordinate with "],
+      [/^(?:i\s+)?met\s+with\s+/i, "Conducted meeting with "],
+      [/^meet\s+with\s+/i, "Conduct meeting with "],
+      [/^need\s+to\s+/i, "Ensure to "],
+      [/^i\s+/i, ""]
+    ];
+
+    function professionalizeText(raw, kind = "worklog") {
+      let text = String(raw || "").trim().replace(/[ \t]+/g, " ");
+      if (!text) return "";
+
+      // Expand shorthand symbols and clean spacing around punctuation
+      text = text.replace(/\bw\/\s*/gi, "with ").replace(/\s*&\s*/g, " and ");
+      text = text.replace(/\s+([,.;!?])/g, "$1").replace(/([,;])([^\s])/g, "$1 $2");
+      text = text.replace(/[ \t]+/g, " ");
+
+      // Normalize typos and preserve uppercase acronyms
+      text = text.replace(/\b[A-Za-z][A-Za-z'\/]*\b/g, (word) => {
+        const lower = word.toLowerCase();
+        if (POLISH_REPLACEMENTS[lower]) return POLISH_REPLACEMENTS[lower];
+        if (POLISH_ACRONYMS.has(lower)) return lower.toUpperCase();
+        if (lower === "i") return "I";
+        return word;
+      });
+
+      const sentences = text.split(/(?<=[.!?])\s+|\n+/).map(s => s.trim()).filter(Boolean);
+      const polished = sentences.map((s) => {
+        let line = s;
+        for (const [pattern, replacement] of POLISH_STARTERS) {
+          if (pattern.test(line)) {
+            line = line.replace(pattern, replacement);
+            break;
+          }
+        }
+        line = line.charAt(0).toUpperCase() + line.slice(1);
+        if (!/[.!?]$/.test(line)) line += ".";
+        return line;
+      });
+
+      return polished.join(" ");
+    }
+
+    function resetPolishState(fieldId) {
+      const el = document.getElementById(fieldId);
+      const undoBtn = document.getElementById(`${fieldId}_undo`);
+      if (el) delete el.dataset.prevPolishValue;
+      if (undoBtn) undoBtn.classList.add("hidden");
+    }
+
+    function polishTextField(fieldId, kind) {
+      const el = document.getElementById(fieldId);
+      if (!el || el.disabled) return;
+      const raw = el.value.trim();
+      if (!raw) {
+        el.focus();
+        showToast("Type a brief note first, then click Polish.", "info");
+        return;
+      }
+      const improved = professionalizeText(raw, kind);
+      if (improved === el.value.trim()) {
+        showToast("Text already looks clean and professional.", "info");
+        return;
+      }
+      el.dataset.prevPolishValue = el.value;
+      el.value = improved;
+      const undoBtn = document.getElementById(`${fieldId}_undo`);
+      if (undoBtn) undoBtn.classList.remove("hidden");
+      showToast("Text polished — click Undo if you want your original draft back.", "success");
+    }
+
+    function undoPolishTextField(fieldId) {
+      const el = document.getElementById(fieldId);
+      if (!el || el.dataset.prevPolishValue === undefined) return;
+      el.value = el.dataset.prevPolishValue;
+      resetPolishState(fieldId);
+      el.focus();
     }
 
     async function submitWorklogForm(e) {
