@@ -823,6 +823,170 @@
       background: #ffffff;
       border-radius: 6px;
     }
+    .report-filter-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 8px;
+    }
+    .report-filter-bar label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .report-filter-bar .select {
+      padding: 5px 8px;
+      font-size: 12px;
+      min-width: 90px;
+    }
+    .report-mode-group {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .report-mode-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .report-mode-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+    }
+    .report-grid-wrap {
+      background: var(--surface-alt);
+    }
+    .report-grid-wrap.mode-sheet {
+      padding: 18px;
+      background: #e2e8f0;
+      overflow: auto;
+      max-height: 76vh;
+    }
+    .report-print-mirror {
+      display: none;
+    }
+    .report-grid-wrap.mode-sheet .report-web-shell {
+      display: none;
+    }
+    .report-grid-wrap.mode-sheet .report-print-mirror {
+      display: block;
+    }
+    .report-web-shell {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .report-web-hero {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: #ffffff;
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.14);
+    }
+    .report-web-hero h2 {
+      font-size: 17px;
+      margin: 0 0 4px 0;
+      font-weight: 700;
+    }
+    .report-web-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .report-web-kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+    .report-web-kpi {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .report-web-kpi .k-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .report-web-kpi .k-val {
+      font-size: 22px;
+      font-weight: 800;
+      margin-top: 3px;
+      color: var(--text);
+    }
+    .report-web-section {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .report-web-section-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+    }
+    .report-web-section-hdr strong {
+      font-size: 13px;
+      color: var(--text);
+    }
+    .report-web-table-wrap {
+      overflow-x: auto;
+    }
+    .report-web-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    .report-web-table th {
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .report-web-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: top;
+      line-height: 1.4;
+      color: var(--text);
+    }
+    .report-web-table tr:last-child td {
+      border-bottom: none;
+    }
+    .report-web-table tr:hover td {
+      background: #f8fafc;
+    }
     @media print {
       * {
         -webkit-print-color-adjust: exact !important;
@@ -839,6 +1003,7 @@
       #worklogsView,
       #perfView,
       .report-toolbar,
+      .report-web-shell,
       .table-footer,
       .modal-backdrop,
       .toast-wrap {
@@ -859,12 +1024,17 @@
         margin: 0 !important;
         padding: 0 !important;
       }
-      .report-paper-shell {
+      .report-grid-wrap,
+      .report-paper-shell,
+      .report-grid-wrap.mode-sheet {
         background: #ffffff !important;
         padding: 0 !important;
         margin: 0 !important;
         overflow: visible !important;
         max-height: none !important;
+      }
+      .report-print-mirror {
+        display: block !important;
       }
       .report-paper {
         box-shadow: none !important;
@@ -1095,35 +1265,47 @@
     <section id="reportView" class="hidden">
       <div class="card">
         <div class="report-toolbar">
-          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <strong style="font-size:14px;">Monthly Report (Read-Only)</strong>
-            <span class="badge badge-gray" id="reportMetaBadge">Google Sheet Format</span>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <strong style="font-size:14px;">Monthly Report</strong>
+            <span class="badge badge-gray" id="reportMetaBadge">Google Sheet</span>
+            <div class="report-filter-bar" title="Filters Report!H7 (Month) and Report!I7 (Year) in Google Sheets">
+              <label for="reportFilterMonth">Month (H7)</label>
+              <select class="select" id="reportFilterMonth" onchange="applyReportFilter()" disabled></select>
+              <label for="reportFilterYear">Year (I7)</label>
+              <select class="select" id="reportFilterYear" onchange="applyReportFilter()" disabled></select>
+              <button type="button" class="btn btn-sm" id="reportApplyFilterBtn" onclick="applyReportFilter()" disabled>Apply</button>
+            </div>
+            <div class="report-mode-group" title="Switch on-screen format inside the web app; printing always uses Google Sheet format">
+              <button type="button" class="report-mode-btn active" id="reportModeWebBtn" onclick="setReportViewMode('web')">✨ Web Format</button>
+              <button type="button" class="report-mode-btn" id="reportModeSheetBtn" onclick="setReportViewMode('sheet')">📊 Sheet Preview</button>
+            </div>
           </div>
           <div class="report-controls">
-            <select class="select" id="reportOrientation" onchange="updateReportPrintLinks()" title="Page orientation for printing &amp; Google Sheet PDF">
-              <option value="portrait">Portrait (A4)</option>
-              <option value="landscape">Landscape (A4)</option>
+            <select class="select" id="reportOrientation" onchange="updateReportPrintLinks()" title="Print format (uses Google Sheet format when printing)">
+              <option value="sheet_default">Print: Google Sheet Default</option>
+              <option value="landscape">Print: Landscape (A4 Fit)</option>
+              <option value="portrait">Print: Portrait (A4 Fit)</option>
             </select>
             <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); cursor:pointer;">
               <input type="checkbox" id="reportFitWidth" checked onchange="syncReportTableOptions()" />
-              Fit to page width
+              Fit width
             </label>
             <label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); cursor:pointer;">
               <input type="checkbox" id="reportGridlines" onchange="syncReportTableOptions()" />
               Gridlines
             </label>
-            <button type="button" class="btn btn-sm" id="reportReloadBtn" onclick="loadReportGrid(true)">↻ Reload Report</button>
-            <button type="button" class="btn btn-sm btn-primary" id="reportPrintBtn" onclick="printReportSheet()">🖨 Print Report</button>
+            <button type="button" class="btn btn-sm" id="reportReloadBtn" onclick="loadReportGrid(true)">↻ Reload</button>
+            <button type="button" class="btn btn-sm btn-primary" id="reportPrintBtn" onclick="printReportSheet()">🖨 Print (Google Sheet)</button>
             <a class="btn btn-sm" id="reportPdfBtn" href="#" target="_blank" rel="noopener noreferrer" title="Open or download Google Sheet's native print PDF format">📄 Google Sheet Print PDF</a>
             <a class="btn btn-sm hidden" id="reportOpenSheetBtn" href="#" target="_blank" rel="noopener noreferrer">Open Sheet ↗</a>
           </div>
         </div>
-        <div class="report-paper-shell" id="reportGridWrap">
-          <div class="report-empty">Open the Report tab after connecting your Google Sheet to load the formatted Report view.</div>
+        <div class="report-grid-wrap mode-web" id="reportGridWrap">
+          <div class="report-empty">Open the Report tab after connecting your Google Sheet to load the Report view.</div>
         </div>
         <div class="table-footer">
           <span id="reportFooterInfo">Read-only view from Google Sheet Report tab.</span>
-          <span>View &amp; Print only — edits are locked on the Report tab.</span>
+          <span>Filter via Report!H7 &amp; I7 • Screen view can be formatted for the web; printing always uses Google Sheet format.</span>
         </div>
       </div>
     </section>
@@ -1588,6 +1770,7 @@
       report: { has_tab: false },
       reportGrid: null,
       reportLoading: false,
+      reportViewMode: "web",
       perfSelectedKey: "",
       perfDrafts: {},
       perfSupDrafts: {},
@@ -1830,6 +2013,7 @@
 
       hydrateFilterSelects();
       hydrateModalDropdowns();
+      updateReportFilterControls(null);
       updateReportPrintLinks();
       if (data.needs_setup) {
         renderReportEmptyState(
@@ -1838,7 +2022,7 @@
             : "Connect your Google Sheet in Setup to load the Report tab."
         );
       } else {
-        renderReportEmptyState("Click ↻ Reload Report or switch to Report tab to load the formatted sheet.");
+        renderReportEmptyState("Click ↻ Reload or switch to Report tab to load the formatted Report.");
       }
       switchTab(state.activeTab, true);
       renderTasks();
@@ -3803,25 +3987,43 @@
     document.getElementById("cf_date").addEventListener("change", updateCompleteTaskState);
     document.getElementById("perfSearch").addEventListener("input", renderPerfStandard);
 
-    // --- READ-ONLY PRINTABLE REPORT TAB ---
+    // --- READ-ONLY PRINTABLE REPORT TAB (H7/I7 Filter, Web View, Google Sheet Print) ---
     function getReportOrientation() {
-      return document.getElementById("reportOrientation").value === "landscape" ? "landscape" : "portrait";
+      const val = document.getElementById("reportOrientation").value;
+      return val === "landscape" || val === "portrait" ? val : "sheet_default";
     }
 
     function getReportExportPdfUrl() {
       const base = state.reportGrid?.export_pdf_base || state.report?.export_pdf_base || "";
       if (!base) return "";
-      const isPortrait = getReportOrientation() === "portrait";
+      const orient = getReportOrientation();
+      const authParam = state.setup?.user_email ? `&authuser=${encodeURIComponent(state.setup.user_email)}` : "";
+      if (orient === "sheet_default") {
+        return `${base}${authParam}`;
+      }
+      const isPortrait = orient === "portrait";
       const fitW = document.getElementById("reportFitWidth").checked;
       const showGrid = document.getElementById("reportGridlines").checked;
-      return `${base}&size=A4&portrait=${isPortrait}&fitw=${fitW}&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=${showGrid}&fzr=false`;
+      return `${base}&size=A4&portrait=${isPortrait}&fitw=${fitW}&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=${showGrid}&fzr=false${authParam}`;
     }
 
     function syncReportPrintPageRule() {
       const styleEl = document.getElementById("reportPrintStyle");
       if (!styleEl) return;
       const orient = getReportOrientation();
-      styleEl.textContent = `@media print { @page { size: A4 ${orient}; margin: 8mm; } }`;
+      const sizeRule = orient === "sheet_default" ? "auto" : `A4 ${orient}`;
+      styleEl.textContent = `@media print { @page { size: ${sizeRule}; margin: 8mm; } }`;
+    }
+
+    function setReportViewMode(mode) {
+      state.reportViewMode = mode === "sheet" ? "sheet" : "web";
+      const wrap = document.getElementById("reportGridWrap");
+      if (wrap) {
+        wrap.classList.toggle("mode-sheet", state.reportViewMode === "sheet");
+        wrap.classList.toggle("mode-web", state.reportViewMode !== "sheet");
+      }
+      document.getElementById("reportModeWebBtn").classList.toggle("active", state.reportViewMode !== "sheet");
+      document.getElementById("reportModeSheetBtn").classList.toggle("active", state.reportViewMode === "sheet");
     }
 
     function syncReportTableOptions() {
@@ -3853,12 +4055,50 @@
       }
     }
 
+    function updateReportFilterControls(filterObj) {
+      const mSel = document.getElementById("reportFilterMonth");
+      const ySel = document.getElementById("reportFilterYear");
+      const applyBtn = document.getElementById("reportApplyFilterBtn");
+      if (!mSel || !ySel) return;
+
+      const f = filterObj || state.reportGrid?.filter || {};
+      const defaultMonths = state.dropdowns?.month_names?.length
+        ? state.dropdowns.month_names
+        : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const mOpts = Array.isArray(f.month_options) && f.month_options.length ? [...f.month_options] : [...defaultMonths];
+      const curM = String(f.month || "").trim();
+      if (curM && !mOpts.some(m => m.toLowerCase() === curM.toLowerCase())) mOpts.unshift(curM);
+
+      const curYearNum = new Date().getFullYear();
+      const defaultYears = state.dropdowns?.years?.length
+        ? [...new Set([...state.dropdowns.years, String(curYearNum - 1), String(curYearNum), String(curYearNum + 1)])].sort((a, b) => b.localeCompare(a))
+        : [String(curYearNum + 1), String(curYearNum), String(curYearNum - 1)];
+      const yOpts = Array.isArray(f.year_options) && f.year_options.length ? [...f.year_options] : defaultYears;
+      const curY = String(f.year || "").trim();
+      if (curY && !yOpts.includes(curY)) yOpts.unshift(curY);
+
+      mSel.innerHTML = mOpts.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+      ySel.innerHTML = yOpts.map(y => `<option value="${escapeHtml(y)}">${escapeHtml(y)}</option>`).join("");
+      if (curM) {
+        const matchedM = mOpts.find(m => m.toLowerCase() === curM.toLowerCase()) || curM;
+        mSel.value = matchedM;
+      }
+      if (curY) ySel.value = curY;
+
+      const enabled = Boolean(state.reportGrid?.has_tab) && !state.reportLoading;
+      mSel.disabled = !enabled;
+      ySel.disabled = !enabled;
+      if (applyBtn) applyBtn.disabled = !enabled;
+    }
+
     function renderReportEmptyState(msg) {
       const wrap = document.getElementById("reportGridWrap");
       if (!wrap) return;
+      wrap.classList.remove("mode-sheet");
+      wrap.classList.add("mode-web");
       wrap.innerHTML = `<div class="report-empty">${escapeHtml(msg || "No Report data loaded yet.")}</div>`;
       const meta = document.getElementById("reportMetaBadge");
-      if (meta) meta.textContent = state.report?.has_tab ? (state.report.title || "Report") : "Google Sheet Format";
+      if (meta) meta.textContent = state.report?.has_tab ? (state.report.title || "Report") : "Google Sheet";
       const footer = document.getElementById("reportFooterInfo");
       if (footer) footer.textContent = msg || "Read-only view from Google Sheet Report tab.";
     }
@@ -3902,26 +4142,262 @@
       return parts.join(";");
     }
 
-    function renderReportGrid() {
-      const g = state.reportGrid;
-      const wrap = document.getElementById("reportGridWrap");
-      if (!g) {
-        renderReportEmptyState("Click ↻ Reload Report to load the Report sheet.");
-        updateReportPrintLinks();
-        return;
-      }
-      if (!g.has_tab) {
-        renderReportEmptyState(`Tab "${state.setup?.report_tab || "Report"}" was not found in this Google Sheet.`);
-        updateReportPrintLinks();
-        return;
-      }
-      const rows = Array.isArray(g.rows) ? g.rows : [];
-      if (g.empty || !rows.length) {
-        renderReportEmptyState(`The "${g.title || "Report"}" tab is currently empty.`);
-        updateReportPrintLinks();
-        return;
+    function _isHelperNumericIndexRow(vals) {
+      const tail = vals.slice(2).filter(Boolean);
+      if (tail.length < 4) return false;
+      const nonTailWords = vals.slice(0, 2).some(v => v && !/^\d{1,2}$/.test(v));
+      if (nonTailWords) return false;
+      return tail.every(v => /^\d{1,2}$/.test(v) && Number(v) <= 30);
+    }
+
+    function _parseWebReportModel(g) {
+      const rows = Array.isArray(g?.rows) ? g.rows : [];
+      const rowTexts = r => (rows[r] || []).map(c => String(c?.v ?? "").trim());
+      let title = "";
+      let empName = state.employee?.name || "";
+      let empId = state.employee?.id || "";
+      let effectiveDate = "";
+      let version = "";
+      let hasError = false;
+      let headerEndIdx = 0;
+
+      const scanLimit = Math.min(rows.length, 10);
+      for (let r = 0; r < scanLimit; r++) {
+        const vals = rowTexts(r);
+        const joined = vals.join(" ").trim();
+        if (!joined) continue;
+        if (vals.some(v => /error in report/i.test(v))) hasError = true;
+        if (vals.some(v => /^type$/i.test(v)) && vals.some(v => /task/i.test(v))) {
+          headerEndIdx = r;
+          break;
+        }
+        for (let c = 0; c < vals.length; c++) {
+          const v = vals[c];
+          if (!v) continue;
+          if (!effectiveDate && /^effective date/i.test(v)) {
+            effectiveDate = vals.slice(c + 1).find(x => x && !/^version/i.test(x)) || "";
+          } else if (!version && /^version\b/i.test(v)) {
+            version = v;
+          } else if (/^name$/i.test(v)) {
+            const found = vals.slice(c + 1).find(x => x && !/report for/i.test(x));
+            if (found) empName = found;
+          } else if (/^employee id$/i.test(v)) {
+            const found = vals.slice(c + 1).find(x => x && !/^of$/i.test(x));
+            if (found) empId = found;
+          } else if (!title && v.length > 8 && !/^report for the month$/i.test(v) && !/^of$/i.test(v) && !/error in report/i.test(v) && !/^\d{4}$/.test(v)) {
+            title = v;
+          }
+        }
+        headerEndIdx = r + 1;
       }
 
+      const month = String(g?.filter?.month || "").trim();
+      const year = String(g?.filter?.year || "").trim();
+      const sections = [];
+      let current = null;
+
+      for (let r = headerEndIdx; r < rows.length; r++) {
+        const vals = rowTexts(r);
+        if (vals.every(v => !v) || _isHelperNumericIndexRow(vals)) continue;
+        const c0 = (vals[0] || "").trim();
+        const c0Lower = c0.toLowerCase();
+
+        const isPendingHdr = c0Lower === "type" && vals.some(v => /\btask\b/i.test(v));
+        const isAccompHdr = c0Lower.startsWith("accomplishment");
+        const isPlanHdr = c0Lower.startsWith("plan for");
+        const isGenericHdr =
+          !current &&
+          vals.filter(Boolean).length >= 3 &&
+          vals.some(v => /task|criteria|description|score|deadline|outcome/i.test(v));
+
+        if (isPendingHdr || isAccompHdr || isPlanHdr || isGenericHdr) {
+          current = {
+            title: isPendingHdr ? "Pending Tasks" : (c0 || "Report Items"),
+            waitingLabelFromFirstRow: isPendingHdr,
+            rawHeaders: vals,
+            rows: [],
+          };
+          sections.push(current);
+          continue;
+        }
+
+        if (current) {
+          if (current.waitingLabelFromFirstRow && c0) {
+            current.title = c0;
+            current.waitingLabelFromFirstRow = false;
+          }
+          const dataCellsPresent = vals.slice(1).some(v => v !== "");
+          if (dataCellsPresent) {
+            current.rows.push(rows[r]);
+          }
+        }
+      }
+
+      // Finalize visible columns per section (keep cols >= 1 that have header or data)
+      const normalizedSections = sections.map(sec => {
+        const colIndices = [];
+        const maxCols = Math.max(sec.rawHeaders.length, ...(sec.rows.map(r => r.length)));
+        for (let c = 1; c < maxCols; c++) {
+          const hdr = String(sec.rawHeaders[c] || "").replace(/\s+/g, " ").trim();
+          const hasData = sec.rows.some(r => String(r?.[c]?.v ?? "").trim() !== "");
+          if (hdr || hasData) {
+            colIndices.push({ idx: c, label: hdr || `Column ${c + 1}` });
+          }
+        }
+        return {
+          title: sec.title,
+          columns: colIndices,
+          rows: sec.rows,
+        };
+      });
+
+      return {
+        title: title || g?.title || "Monthly Report",
+        empName,
+        empId,
+        effectiveDate,
+        version,
+        month,
+        year,
+        hasError,
+        sections: normalizedSections,
+        fallbackRows: normalizedSections.length
+          ? []
+          : rows
+              .map(r => r.map(c => String(c?.v ?? "").trim()))
+              .filter(vals => vals.some(Boolean) && !_isHelperNumericIndexRow(vals)),
+      };
+    }
+
+    function _renderWebBadgeCell(headerLabel, rawVal) {
+      const val = String(rawVal ?? "").trim();
+      if (!val) return `<span style="color:#cbd5e1;">—</span>`;
+      const h = headerLabel.toLowerCase();
+      if (h.includes("priority")) {
+        const cls = val === "High" ? "badge-red" : val === "Medium" ? "badge-amber" : "badge-gray";
+        return `<span class="badge ${cls}">${escapeHtml(val)}</span>`;
+      }
+      if (h.includes("delay") && /^-?\d+(\.\d+)?$/.test(val)) {
+        const n = Number(val);
+        return n > 0
+          ? `<span class="badge badge-red">${escapeHtml(val)}d</span>`
+          : `<span class="badge badge-green">0d</span>`;
+      }
+      if (h.includes("complete") && val.includes("%")) {
+        return `<span class="badge ${val.startsWith("100") ? "badge-green" : "badge-blue"}">${escapeHtml(val)}</span>`;
+      }
+      if (h.includes("supervisor")) {
+        return `<div style="min-width:140px; color:#5b21b6; font-weight:500;">${escapeHtml(val)}</div>`;
+      }
+      if (h.includes("task")) {
+        return `<div style="min-width:220px; font-weight:600;">${escapeHtml(val)}</div>`;
+      }
+      return escapeHtml(val);
+    }
+
+    function _buildWebReportHtml(g) {
+      const m = _parseWebReportModel(g);
+      const periodText = [m.month, m.year].filter(Boolean).join(" ") || "Current Selection";
+      const statusBadge = m.hasError
+        ? `<span class="badge badge-red">⚠ Error in Report (Check Tasks Validation)</span>`
+        : `<span class="badge badge-green">✓ Report Valid</span>`;
+
+      let kpiHtml = "";
+      let bodyHtml = "";
+
+      if (m.sections.length) {
+        const delayColSum = m.sections.reduce((acc, sec) => {
+          const delayCol = sec.columns.find(c => c.label.toLowerCase().includes("delay"));
+          if (!delayCol) return acc;
+          return acc + sec.rows.filter(r => Number(r?.[delayCol.idx]?.v || 0) > 0).length;
+        }, 0);
+
+        const kpiCards = m.sections.slice(0, 3).map(sec => `
+          <div class="report-web-kpi">
+            <div class="k-label">${escapeHtml(sec.title)}</div>
+            <div class="k-val">${sec.rows.length}</div>
+          </div>
+        `).join("") + `
+          <div class="report-web-kpi">
+            <div class="k-label">Delayed Items</div>
+            <div class="k-val" style="color:${delayColSum ? "var(--red)" : "var(--green)"}">${delayColSum}</div>
+          </div>
+        `;
+        kpiHtml = `<div class="report-web-kpis">${kpiCards}</div>`;
+
+        bodyHtml = m.sections.map(sec => {
+          const hdrCells = sec.columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join("");
+          const tableRows = sec.rows.length
+            ? sec.rows.map(row => {
+                const tds = sec.columns.map(c => `<td>${_renderWebBadgeCell(c.label, row?.[c.idx]?.v)}</td>`).join("");
+                return `<tr>${tds}</tr>`;
+              }).join("")
+            : `<tr><td colspan="${Math.max(1, sec.columns.length)}" style="text-align:center; padding:18px; color:var(--muted);">No items recorded for ${escapeHtml(periodText)}.</td></tr>`;
+
+          return `
+            <div class="report-web-section">
+              <div class="report-web-section-hdr">
+                <strong>${escapeHtml(sec.title)}</strong>
+                <span class="badge badge-blue">${sec.rows.length} item${sec.rows.length === 1 ? "" : "s"}</span>
+              </div>
+              <div class="report-web-table-wrap">
+                <table class="report-web-table">
+                  <thead><tr>${hdrCells}</tr></thead>
+                  <tbody>${tableRows}</tbody>
+                </table>
+              </div>
+            </div>
+          `;
+        }).join("");
+      } else {
+        const cleanRows = m.fallbackRows;
+        const maxC = cleanRows.reduce((mx, r) => Math.max(mx, r.length), 0);
+        const keepCols = [];
+        for (let c = 0; c < maxC; c++) {
+          if (cleanRows.some(r => r[c])) keepCols.push(c);
+        }
+        const rowsHtml = cleanRows.map((vals, ri) => {
+          const tds = keepCols.map(c => `<td>${vals[c] ? escapeHtml(vals[c]) : "<span style='color:#cbd5e1;'>—</span>"}</td>`).join("");
+          return `<tr style="${ri === 0 ? "font-weight:700; background:#f8fafc;" : ""}">${tds}</tr>`;
+        }).join("");
+        bodyHtml = `
+          <div class="report-web-section">
+            <div class="report-web-section-hdr">
+              <strong>${escapeHtml(m.title)}</strong>
+              <span class="badge badge-blue">${cleanRows.length} rows</span>
+            </div>
+            <div class="report-web-table-wrap">
+              <table class="report-web-table"><tbody>${rowsHtml}</tbody></table>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="report-web-shell">
+          <div class="report-web-hero">
+            <div>
+              <h2>${escapeHtml(m.title)}</h2>
+              <div class="report-web-meta">
+                ${m.empName ? `<span>👤 ${escapeHtml(m.empName)}</span>` : ""}
+                ${m.empId ? `<span>ID: ${escapeHtml(m.empId)}</span>` : ""}
+                <span>📅 Month (H7/I7): <strong style="color:#fff;">${escapeHtml(periodText)}</strong></span>
+                ${m.effectiveDate ? `<span>Effective: ${escapeHtml(m.effectiveDate)}</span>` : ""}
+                ${m.version ? `<span>${escapeHtml(m.version)}</span>` : ""}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              ${statusBadge}
+            </div>
+          </div>
+          ${kpiHtml}
+          ${bodyHtml}
+        </div>
+      `;
+    }
+
+    function _buildGoogleSheetTableHtml(g) {
+      const rows = Array.isArray(g.rows) ? g.rows : [];
       const rowCount = rows.length;
       const colCount = Math.max(1, Number(g.col_count) || rows[0].length || 1);
       const colWidths = Array.isArray(g.col_widths) ? g.col_widths : [];
@@ -3966,20 +4442,51 @@
         return `<tr style="height:${hPx}px;">${tds}</tr>`;
       }).join("");
 
-      wrap.innerHTML = `
-        <div class="report-paper">
-          <table class="report-sheet-table" style="width:${Math.max(320, Math.round(totalWidth))}px;">
-            <colgroup>${colsHtml}</colgroup>
-            <tbody>${bodyHtml}</tbody>
-          </table>
+      return `
+        <div class="report-print-mirror">
+          <div class="report-paper">
+            <table class="report-sheet-table" style="width:${Math.max(320, Math.round(totalWidth))}px;">
+              <colgroup>${colsHtml}</colgroup>
+              <tbody>${bodyHtml}</tbody>
+            </table>
+          </div>
         </div>
       `;
+    }
+
+    function renderReportGrid() {
+      const g = state.reportGrid;
+      const wrap = document.getElementById("reportGridWrap");
+      if (!g) {
+        updateReportFilterControls(null);
+        renderReportEmptyState("Click ↻ Reload to load the Report sheet.");
+        updateReportPrintLinks();
+        return;
+      }
+      if (!g.has_tab) {
+        updateReportFilterControls(null);
+        renderReportEmptyState(`Tab "${state.setup?.report_tab || "Report"}" was not found in this Google Sheet.`);
+        updateReportPrintLinks();
+        return;
+      }
+      const rows = Array.isArray(g.rows) ? g.rows : [];
+      updateReportFilterControls(g.filter || null);
+      if (g.empty || !rows.length) {
+        renderReportEmptyState(`The "${g.title || "Report"}" tab is currently empty.`);
+        updateReportPrintLinks();
+        return;
+      }
+
+      wrap.innerHTML = _buildWebReportHtml(g) + _buildGoogleSheetTableHtml(g);
+      setReportViewMode(state.reportViewMode);
 
       const title = g.title || "Report";
-      document.getElementById("reportMetaBadge").textContent = `${title} • ${rowCount} rows × ${colCount} cols`;
+      const periodLabel = [g.filter?.month, g.filter?.year].filter(Boolean).join(" ");
+      document.getElementById("reportMetaBadge").textContent =
+        `${title}${periodLabel ? " • " + periodLabel : ""} • ${rows.length}×${g.col_count || rows[0].length}`;
       document.getElementById("reportFooterInfo").textContent =
-        `Showing ${rowCount} row(s) × ${colCount} column(s) from "${title}" (view & print only).`;
-      document.getElementById("reportTabBadge").textContent = "Ready";
+        `Showing "${title}"${periodLabel ? " for " + periodLabel : ""} (${rows.length} rows) — Web Format on screen, Google Sheet Format on print.`;
+      document.getElementById("reportTabBadge").textContent = periodLabel || "Ready";
       updateReportPrintLinks();
     }
 
@@ -3991,6 +4498,7 @@
         btn.disabled = true;
         btn.textContent = "Loading...";
       }
+      updateReportFilterControls(state.reportGrid?.filter || null);
       const wrap = document.getElementById("reportGridWrap");
       if (wrap && !state.reportGrid) {
         renderReportEmptyState("Loading Report tab from Google Sheets...");
@@ -4022,8 +4530,57 @@
         state.reportLoading = false;
         if (btn) {
           btn.disabled = false;
-          btn.textContent = "↻ Reload Report";
+          btn.textContent = "↻ Reload";
         }
+        updateReportFilterControls(state.reportGrid?.filter || null);
+      }
+    }
+
+    async function applyReportFilter() {
+      if (state.reportLoading) return;
+      const mSel = document.getElementById("reportFilterMonth");
+      const ySel = document.getElementById("reportFilterYear");
+      const applyBtn = document.getElementById("reportApplyFilterBtn");
+      const reloadBtn = document.getElementById("reportReloadBtn");
+      const month = (mSel?.value || "").trim();
+      const year = (ySel?.value || "").trim();
+      if (!month || !year) {
+        showToast("Please select both Month (H7) and Year (I7).", "error");
+        return;
+      }
+      state.reportLoading = true;
+      if (mSel) mSel.disabled = true;
+      if (ySel) ySel.disabled = true;
+      if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.textContent = "Updating...";
+      }
+      if (reloadBtn) reloadBtn.disabled = true;
+      try {
+        const data = await apiFetch("/api/report/filter", {
+          method: "PUT",
+          body: JSON.stringify({ month, year }),
+        });
+        state.reportGrid = data;
+        state.report = {
+          has_tab: Boolean(data.has_tab),
+          title: data.title || state.setup?.report_tab || "Report",
+          sheet_id: data.sheet_id,
+          row_count: data.row_count || 0,
+          col_count: data.col_count || 0,
+          sheet_url: data.sheet_url || "",
+          export_pdf_base: data.export_pdf_base || "",
+        };
+        renderReportGrid();
+        showToast(`Filtered Report (H7:I7) to ${month} ${year} ✓`, "success");
+      } catch (err) {
+        if (state.reportGrid?.filter) updateReportFilterControls(state.reportGrid.filter);
+        showToast(err.message, "error");
+      } finally {
+        state.reportLoading = false;
+        if (applyBtn) applyBtn.textContent = "Apply";
+        if (reloadBtn) reloadBtn.disabled = false;
+        updateReportFilterControls(state.reportGrid?.filter || null);
       }
     }
 

@@ -763,7 +763,7 @@
     "sheets(properties(sheetId,title,gridProperties),merges," +
     "data(startRow,startColumn,rowMetadata(pixelSize,hiddenByUser)," +
     "columnMetadata(pixelSize,hiddenByUser)," +
-    "rowData.values(formattedValue,effectiveFormat(backgroundColor,backgroundColorStyle," +
+    "rowData.values(formattedValue,dataValidation,effectiveFormat(backgroundColor,backgroundColorStyle," +
     "textFormat(bold,italic,fontSize,foregroundColor,foregroundColorStyle)," +
     "horizontalAlignment,verticalAlignment,wrapStrategy,borders(top,bottom,left,right)))))";
 
@@ -849,9 +849,69 @@
     return { lastR, lastC };
   }
 
-  function parseReportGridData(sheetPayload, lastValR, lastValC, maxCols, reportMeta) {
+  function extractCellDvList(cd) {
+    const cond = cd?.dataValidation?.condition || {};
+    if (String(cond.type || "").toUpperCase() !== "ONE_OF_LIST") return [];
+    const seen = new Set();
+    const out = [];
+    (cond.values || []).forEach(it => {
+      const val = String(it?.userEnteredValue || "").trim();
+      if (val && !seen.has(val)) {
+        seen.add(val);
+        out.push(val);
+      }
+    });
+    return out;
+  }
+
+  function extractReportFilter(rowData, dataRows = []) {
+    const cellAt = (rIdx, cIdx) => {
+      const vals = rowData?.[rIdx]?.values;
+      return Array.isArray(vals) && vals[cIdx] && typeof vals[cIdx] === "object" ? vals[cIdx] : {};
+    };
+    const h7 = cellAt(6, 7);
+    const i7 = cellAt(6, 8);
+    const curMonth = String(h7.formattedValue ?? "").trim();
+    const curYear = String(i7.formattedValue ?? "").trim();
+
+    const dvMonths = extractCellDvList(h7);
+    const dvYears = extractCellDvList(i7);
+
+    const dataMonths = [];
+    const dataYears = [];
+    (dataRows || []).forEach(r => {
+      const mVal = r && r[0] != null ? String(r[0]).trim() : "";
+      const yVal = r && r[2] != null ? String(r[2]).trim() : "";
+      if (mVal && !dataMonths.includes(mVal)) dataMonths.push(mVal);
+      if (/^\d{4}$/.test(yVal) && !dataYears.includes(yVal)) dataYears.push(yVal);
+    });
+
+    let monthOptions = dvMonths.length ? dvMonths : (dataMonths.length ? dataMonths : [...MONTH_NAMES]);
+    if (curMonth && !monthOptions.includes(curMonth)) monthOptions = [curMonth, ...monthOptions];
+
+    let yearOptions;
+    if (dvYears.length) {
+      yearOptions = [...dvYears];
+      if (curYear && !yearOptions.includes(curYear)) yearOptions.unshift(curYear);
+    } else {
+      const curYNum = new Date().getFullYear();
+      const ySet = new Set([...dataYears, String(curYNum - 1), String(curYNum), String(curYNum + 1)]);
+      if (curYear) ySet.add(curYear);
+      yearOptions = [...ySet].sort((a, b) => b.localeCompare(a));
+    }
+
+    return {
+      month: curMonth,
+      year: curYear,
+      month_options: monthOptions,
+      year_options: yearOptions,
+    };
+  }
+
+  function parseReportGridData(sheetPayload, lastValR, lastValC, maxCols, reportMeta, dataRows = []) {
+    const emptyFilter = { month: "", year: "", month_options: [...MONTH_NAMES], year_options: [] };
     if (!reportMeta.has_tab) {
-      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0, filter: emptyFilter };
     }
     const sheetObj = sheetPayload?.sheets?.[0] || {};
     const gridData = sheetObj?.data?.[0] || {};
@@ -859,9 +919,10 @@
     const rowMeta = gridData.rowMetadata || [];
     const colMeta = gridData.columnMetadata || [];
     const rawMerges = sheetObj.merges || [];
+    const filterInfo = extractReportFilter(rowData, dataRows);
 
     if (lastValR <= 0 && !rawMerges.length) {
-      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0, filter: filterInfo };
     }
 
     let usedRows = Math.max(lastValR, 1);
@@ -894,7 +955,7 @@
     usedRows = rowData.length ? Math.min(usedRows, rowData.length) : 0;
     usedCols = Math.min(usedCols, maxCols);
     if (usedRows <= 0 || usedCols <= 0) {
-      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0, filter: filterInfo };
     }
 
     const visRows = [];
@@ -906,7 +967,7 @@
       if (!(c < colMeta.length && colMeta[c]?.hiddenByUser)) visCols.push(c);
     }
     if (!visRows.length || !visCols.length) {
-      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0 };
+      return { ...reportMeta, empty: true, rows: [], merges: [], col_widths: [], row_heights: [], total_width_px: 0, filter: filterInfo };
     }
 
     const rowToVis = new Map(visRows.map((r, idx) => [r, idx]));
@@ -984,6 +1045,7 @@
       col_widths: colWidths,
       row_heights: rowHeights,
       total_width_px: colWidths.reduce((a, b) => a + b, 0),
+      filter: filterInfo,
     };
   }
 
@@ -1005,19 +1067,58 @@
     const maxRows = Math.min(Number(smap.report.rowCount || 100), 350);
     const maxCols = Math.min(Number(smap.report.columnCount || 12), 26);
     const endColLet = colToLetters(maxCols);
-    const valRes = await sheetsFetch(
-      `/${encodeURIComponent(sid)}/values/${encodeURIComponent(`${qr}!A1:${endColLet}${maxRows}`)}?valueRenderOption=FORMATTED_VALUE`,
-      {},
-      cfg
-    );
-    const { lastR, lastC } = findLastReportValBounds(valRes.values || [], maxCols);
+    const batchParams = new URLSearchParams();
+    batchParams.append("ranges", `${qr}!A1:${endColLet}${maxRows}`);
+    if (smap.data) batchParams.append("ranges", `${quoteSheet(smap.data.title)}!K1:M30`);
+    batchParams.set("valueRenderOption", "FORMATTED_VALUE");
+    const valRes = await sheetsFetch(`/${encodeURIComponent(sid)}/values:batchGet?${batchParams.toString()}`, {}, cfg);
+    const vrs = valRes.valueRanges || [];
+    const valRows = vrs[0]?.values || [];
+    const dataRows = smap.data ? (vrs[1]?.values || []) : [];
+    const { lastR, lastC } = findLastReportValBounds(valRows, maxCols);
     const fetchEndR = Math.min(maxRows, Math.max(lastR + 6, 40));
     const grid = await sheetsFetch(
       `/${encodeURIComponent(sid)}?ranges=${encodeURIComponent(`${qr}!A1:${endColLet}${fetchEndR}`)}&fields=${encodeURIComponent(REPORT_GRID_FIELDS)}`,
       {},
       cfg
     );
-    return parseReportGridData(grid, lastR, lastC, maxCols, reportMeta);
+    return parseReportGridData(grid, lastR, lastC, maxCols, reportMeta, dataRows);
+  }
+
+  async function updateReportFilter(payload, cfgOverride = null) {
+    const cfg = cfgOverride || loadBrowserConfig();
+    const cid = resolveClientId(cfg.client_id);
+    const sid = String(cfg.spreadsheet_id || "").trim();
+    if (!sid || !cid) throw new Error("No Google Sheet configured yet.");
+
+    const rawMonth = String(payload?.month ?? "").trim();
+    const rawYear = String(payload?.year ?? "").trim();
+    if (!rawMonth || !rawYear) {
+      throw new Error("Both Month (H7) and Year (I7) are required to filter the Report tab.");
+    }
+    const monthMatch = MONTH_NAMES.find(m => m.toLowerCase() === rawMonth.toLowerCase()) || rawMonth;
+    let yearCell = rawYear;
+    if (/^\d{4}$/.test(rawYear)) {
+      const yrNum = Number(rawYear);
+      if (yrNum < 1900 || yrNum > 2100) throw new Error("Year (I7) must be between 1900 and 2100.");
+      yearCell = yrNum;
+    }
+
+    await ensureAccessToken(cid, false);
+    const smap = await getSheetMap(sid, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab, cfg.report_tab);
+    if (!smap.report) {
+      throw makeApiError(`Report tab '${cfg.report_tab || DEFAULT_TABS.report}' was not found.`, 404);
+    }
+    const qr = quoteSheet(smap.report.title);
+    await sheetsFetch(
+      `/${encodeURIComponent(sid)}/values/${encodeURIComponent(`${qr}!H7:I7`)}?valueInputOption=USER_ENTERED`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ values: [[monthMatch, yearCell]] }),
+      },
+      cfg
+    );
+    return await fetchReportData(cfg);
   }
 
   function buildSetupPayload(cfg, sheetUrl = "") {
@@ -1414,6 +1515,9 @@
     }
     if (url === "/api/report" && method === "GET") {
       return await fetchReportData(cfg);
+    }
+    if (url === "/api/report/filter" && (method === "PUT" || method === "POST")) {
+      return await updateReportFilter(payload, cfg);
     }
     if (url === "/api/setup" && method === "GET") {
       return buildSetupPayload(cfg);

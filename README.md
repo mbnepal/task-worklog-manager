@@ -22,9 +22,9 @@ Works in **two modes** using the same interface:
 - **Perf Standard Tab (`Perf Standard`)**
   - View historical months read-only via the Month selector, or click **+ New Month** to copy KPI structure, weights, targets, Score formulas (`Col I`), `SF` (`Col M`), and dropdown validations from any previous month (`PASTE_NORMAL`), clearing old remarks and supervisor scores (`J:L`).
   - Strictly locks all columns except **Achievement (`Col H`)** on the current/latest month (respecting `ONE_OF_LIST` validations where configured).
-- **Report Tab (`Report` — Read-Only View & Print)**
-  - Displays the live formatted Google Sheet `Report` tab (merged cells, colors, fonts, borders, alignment, and visible rows/columns) in a strictly read-only paper preview.
-  - Supports **Print Report** (`@media print` with A4 Portrait/Landscape & Fit-to-width options) as well as **Google Sheet Print PDF** (`export?format=pdf&gid=...`) to print directly in Google Sheets' native print format.
+- **Report Tab (`Report` — H7/I7 Filter, Web View & Google Sheet Print)**
+  - Filters the monthly report directly via **`Report!H7` (Month)** and **`Report!I7` (Year)** so Google Sheets recalculates formulas across employee and supervision views.
+  - Displays a clean, readable **Web Format** by default on screen (with an optional **Sheet Preview** toggle), while **printing** (`window.print()` / `Print (Google Sheet)` and **Google Sheet Print PDF**) always outputs strictly in the **Google Sheet format**.
 - **Supervision Mode (`Setup → Supervision (Supervisor)`)**
   - Supervisors can select **Supervision (Supervisor)** in **Setup** before opening a staff member's Google Sheet.
   - Locks all employee fields, Work Log entries, KPI Achievements (`Col H`), and row creation/completion/deletion across the app and backends, allowing edits **only** to Supervisor fields (**Tasks `Col T` Supervisor Comments** and **Perf Standard `Col K` Supervisor Score + `Col L` Supervisor Remarks**).

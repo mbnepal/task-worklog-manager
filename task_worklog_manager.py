@@ -671,7 +671,7 @@ REPORT_GRID_FIELDS = (
     "sheets(properties(sheetId,title,gridProperties),merges,"
     "data(startRow,startColumn,rowMetadata(pixelSize,hiddenByUser),"
     "columnMetadata(pixelSize,hiddenByUser),"
-    "rowData.values(formattedValue,effectiveFormat(backgroundColor,backgroundColorStyle,"
+    "rowData.values(formattedValue,dataValidation,effectiveFormat(backgroundColor,backgroundColorStyle,"
     "textFormat(bold,italic,fontSize,foregroundColor,foregroundColorStyle),"
     "horizontalAlignment,verticalAlignment,wrapStrategy,borders(top,bottom,left,right)))))"
 )
@@ -763,24 +763,89 @@ def _find_last_report_val_bounds(val_rows: list[list], max_cols: int) -> tuple[i
     return last_r, last_c
 
 
+def _extract_cell_dv_list(cd: dict) -> list[str]:
+    dv = cd.get("dataValidation") or {}
+    cond = dv.get("condition") or {}
+    if str(cond.get("type") or "").upper() != "ONE_OF_LIST":
+        return []
+    out = []
+    for item in cond.get("values") or []:
+        val = str((item or {}).get("userEnteredValue") or "").strip()
+        if val and val not in out:
+            out.append(val)
+    return out
+
+
+def _extract_report_filter(row_data: list, data_rows: list[list] | None = None) -> dict:
+    def _cell_at(r_idx: int, c_idx: int) -> dict:
+        if r_idx < len(row_data):
+            vals = (row_data[r_idx] or {}).get("values") or []
+            if c_idx < len(vals) and isinstance(vals[c_idx], dict):
+                return vals[c_idx]
+        return {}
+
+    h7 = _cell_at(6, 7)
+    i7 = _cell_at(6, 8)
+    cur_month = str(h7.get("formattedValue") or "").strip()
+    cur_year = str(i7.get("formattedValue") or "").strip()
+
+    dv_months = _extract_cell_dv_list(h7)
+    dv_years = _extract_cell_dv_list(i7)
+
+    data_months: list[str] = []
+    data_years: list[str] = []
+    for row in data_rows or []:
+        m_val = str(row[0]).strip() if len(row) > 0 and row[0] is not None else ""
+        y_val = str(row[2]).strip() if len(row) > 2 and row[2] is not None else ""
+        if m_val and m_val not in data_months:
+            data_months.append(m_val)
+        if re.fullmatch(r"\d{4}", y_val) and y_val not in data_years:
+            data_years.append(y_val)
+
+    month_options = dv_months or data_months or list(MONTH_NAMES)
+    if cur_month and cur_month not in month_options:
+        month_options = [cur_month] + list(month_options)
+
+    if dv_years:
+        year_options = list(dv_years)
+        if cur_year and cur_year not in year_options:
+            year_options.insert(0, cur_year)
+    else:
+        cur_y_num = date.today().year
+        yr_set = set(data_years) | {str(cur_y_num - 1), str(cur_y_num), str(cur_y_num + 1)}
+        if cur_year:
+            yr_set.add(cur_year)
+        year_options = sorted(yr_set, reverse=True)
+
+    return {
+        "month": cur_month,
+        "year": cur_year,
+        "month_options": month_options,
+        "year_options": year_options,
+    }
+
+
 def parse_report_grid_data(
     sheet_payload: dict | None,
     last_val_row: int,
     last_val_col: int,
     max_cols: int,
     report_meta: dict,
+    data_rows: list[list] | None = None,
 ) -> dict:
+    empty_filter = {"month": "", "year": "", "month_options": list(MONTH_NAMES), "year_options": []}
     if not report_meta.get("has_tab"):
-        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0, "filter": empty_filter}
     sheet_obj = (sheet_payload or {}).get("sheets", [{}])[0] if (sheet_payload or {}).get("sheets") else {}
     grid_data = (sheet_obj.get("data") or [{}])[0]
     row_data = grid_data.get("rowData") or []
     row_meta = grid_data.get("rowMetadata") or []
     col_meta = grid_data.get("columnMetadata") or []
     raw_merges = sheet_obj.get("merges") or []
+    filter_info = _extract_report_filter(row_data, data_rows)
 
     if last_val_row <= 0 and not raw_merges:
-        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0, "filter": filter_info}
 
     used_rows = max(last_val_row, 1)
     used_cols = max(last_val_col, 1)
@@ -810,7 +875,7 @@ def parse_report_grid_data(
     used_rows = min(used_rows, len(row_data)) if row_data else 0
     used_cols = min(used_cols, max_cols)
     if used_rows <= 0 or used_cols <= 0:
-        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0, "filter": filter_info}
 
     vis_rows = [
         r for r in range(used_rows)
@@ -821,7 +886,7 @@ def parse_report_grid_data(
         if not (c < len(col_meta) and bool((col_meta[c] or {}).get("hiddenByUser")))
     ]
     if not vis_rows or not vis_cols:
-        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0}
+        return {**report_meta, "empty": True, "rows": [], "merges": [], "col_widths": [], "row_heights": [], "total_width_px": 0, "filter": filter_info}
 
     row_to_vis = {r: idx for idx, r in enumerate(vis_rows)}
     col_to_vis = {c: idx for idx, c in enumerate(vis_cols)}
@@ -914,6 +979,7 @@ def parse_report_grid_data(
         "col_widths": col_widths,
         "row_heights": row_heights,
         "total_width_px": sum(col_widths),
+        "filter": filter_info,
     }
 
 
@@ -1285,13 +1351,19 @@ def fetch_report_data(service=None, cfg: dict | None = None) -> dict:
         max_rows = min(int(report_entry.get("rowCount") or 100), 350)
         max_cols = min(int(report_entry.get("columnCount") or 12), 26)
         end_col_let = col_to_letters(max_cols)
-        val_rows = (
+        val_ranges = [f"{qr}!A1:{end_col_let}{max_rows}"]
+        has_data_tab = bool(smap.get("data"))
+        if has_data_tab:
+            val_ranges.append(f"{quote_sheet(smap['data']['title'])}!K1:M30")
+        vrs = (
             svc.spreadsheets()
             .values()
-            .get(spreadsheetId=sid, range=f"{qr}!A1:{end_col_let}{max_rows}", valueRenderOption="FORMATTED_VALUE")
+            .batchGet(spreadsheetId=sid, ranges=val_ranges, valueRenderOption="FORMATTED_VALUE")
             .execute()
-            .get("values", [])
+            .get("valueRanges", [])
         )
+        val_rows = vrs[0].get("values", []) if len(vrs) > 0 else []
+        data_rows = vrs[1].get("values", []) if has_data_tab and len(vrs) > 1 else []
         last_val_r, last_val_c = _find_last_report_val_bounds(val_rows, max_cols)
         fetch_end_r = min(max_rows, max(last_val_r + 6, 40))
         grid = (
@@ -1303,7 +1375,56 @@ def fetch_report_data(service=None, cfg: dict | None = None) -> dict:
             )
             .execute()
         )
-        return parse_report_grid_data(grid, last_val_r, last_val_c, max_cols, report_meta)
+        return parse_report_grid_data(grid, last_val_r, last_val_c, max_cols, report_meta, data_rows=data_rows)
+
+    if service is not None:
+        return _run(service)
+    with sheets_lock:
+        svc = get_sheets_service()
+        return _run(svc)
+
+
+def update_report_filter(payload: dict, service=None, cfg: dict | None = None) -> dict:
+    cfg = cfg or load_config()
+    sid = (cfg.get("spreadsheet_id") or "").strip()
+    if not sid:
+        raise ApiError("No Google Sheet configured yet.", 400)
+    raw_month = str(payload.get("month") or "").strip()
+    raw_year = str(payload.get("year") or "").strip()
+    if not raw_month or not raw_year:
+        raise ApiError("Both Month (H7) and Year (I7) are required to filter the Report tab.", 400)
+
+    month_match = next((m for m in MONTH_NAMES if m.lower() == raw_month.lower()), raw_month)
+    if re.fullmatch(r"\d{4}", raw_year):
+        yr_num = int(raw_year)
+        if yr_num < 1900 or yr_num > 2100:
+            raise ApiError("Year (I7) must be between 1900 and 2100.", 400)
+        year_cell: int | str = yr_num
+    else:
+        year_cell = raw_year
+
+    def _run(svc):
+        active_sid, smap = _active_smap(svc, cfg)
+        report_entry = smap.get("report")
+        if not report_entry:
+            raise ApiError(f"Report tab '{cfg.get('report_tab', DEFAULT_REPORT_TAB)}' was not found.", 404)
+        qr = quote_sheet(report_entry["title"])
+        try:
+            svc.spreadsheets().values().update(
+                spreadsheetId=active_sid,
+                range=f"{qr}!H7:I7",
+                valueInputOption="USER_ENTERED",
+                body={"values": [[month_match, year_cell]]},
+            ).execute()
+        except HttpError as exc:
+            status = getattr(getattr(exc, "resp", None), "status", 500)
+            if status == 403:
+                raise ApiError(
+                    "Cannot change Report!H7:I7 filter because your Google account only has view-only access to this sheet.",
+                    403,
+                ) from exc
+            raise
+        return fetch_report_data(svc, cfg=cfg)
 
     if service is not None:
         return _run(service)
@@ -2285,6 +2406,8 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
                 self._send_json(update_perf_achievements(payload))
             elif parsed.path in ("/api/perf/supervisor-remarks", "/api/perf/supervisor-review"):
                 self._send_json(update_perf_supervisor_remarks(payload))
+            elif parsed.path == "/api/report/filter":
+                self._send_json(update_report_filter(payload))
             else:
                 self.send_error(404)
         except Exception as exc:

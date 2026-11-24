@@ -29,7 +29,7 @@ class FakeSheetsMemory:
                 {"properties": {"sheetId": 202, "title": "Work log", "gridProperties": {"rowCount": 998, "columnCount": 7}}},
                 {"properties": {"sheetId": 303, "title": "Data", "gridProperties": {"rowCount": 1000, "columnCount": 29}}},
                 {"properties": {"sheetId": 404, "title": "Perf Standard", "gridProperties": {"rowCount": 200, "columnCount": 26}}},
-                {"properties": {"sheetId": 505, "title": "Report", "gridProperties": {"rowCount": 40, "columnCount": 6}}},
+                {"properties": {"sheetId": 505, "title": "Report", "gridProperties": {"rowCount": 40, "columnCount": 12}}},
             ],
         }
         self.cells = {}
@@ -37,6 +37,7 @@ class FakeSheetsMemory:
         self.batch_requests = []
         self.perf_h_dv = {}
         self.report_formats = {}
+        self.report_dv = {}
         self.report_hidden_rows = set()
         self.report_hidden_cols = set()
         self.report_merges = []
@@ -73,15 +74,18 @@ class FakeSheetsMemory:
         self.set_row("Work log", 11, ["2", "11/20/26", "WL Two", "Project Beta", "60", "On-going", "Note 2"])
         self.set_cell("Work log", 12, 1, "3")
 
-        # Seed Report tab (rows 1..4 with values, row 2 hidden, row 5 bordered signature)
+        # Seed Report tab (rows 1..7 with values + H7/I7 filter, row 2 hidden, row 8 bordered signature)
         self.set_row("Report", 1, ["Monthly Employee Performance Report", "", "", ""])
         self.set_row("Report", 2, ["Hidden Helper", "Secret Note", "", ""])
         self.set_row("Report", 3, ["Employee", "Alice Example", "Score", "95%"])
         self.set_row("Report", 4, ["Summary", "On track", "", "Approved"])
+        self.set_row("Report", 6, ["Name", "", "Alice Example", "", "", "", "Report for the month"])
+        self.set_row("Report", 7, ["Employee ID", "", "10", "", "", "", "of", "October", "2026"])
         self.report_hidden_rows = {2}
         self.report_merges = [{"startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 4}]
         self.report_col_widths = {1: 140, 2: 200, 3: 110, 4: 120}
-        self.report_row_heights = {1: 32, 3: 24, 5: 28}
+        self.report_row_heights = {1: 32, 3: 24, 8: 28}
+        self.report_dv[(7, 8)] = ["October", "November", "December"]
         self.report_formats[(1, 1)] = {
             "backgroundColor": {"red": 0.1, "green": 0.2, "blue": 0.6},
             "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}, "bold": True, "fontSize": 14},
@@ -97,7 +101,7 @@ class FakeSheetsMemory:
             "textFormat": {"bold": True},
             "wrapStrategy": "WRAP",
         }
-        self.report_formats[(5, 1)] = {
+        self.report_formats[(8, 1)] = {
             "borders": {"bottom": {"style": "DASHED"}},
         }
 
@@ -187,6 +191,13 @@ class FakeSheetsMemory:
                                 cell_d = {"formattedValue": "" if val is None else str(val)}
                                 if (rn, cn) in mem.report_formats:
                                     cell_d["effectiveFormat"] = mem.report_formats[(rn, cn)]
+                                if (rn, cn) in mem.report_dv:
+                                    cell_d["dataValidation"] = {
+                                        "condition": {
+                                            "type": "ONE_OF_LIST",
+                                            "values": [{"userEnteredValue": v} for v in mem.report_dv[(rn, cn)]],
+                                        }
+                                    }
                                 row_vals.append(cell_d)
                             row_data.append({"values": row_vals})
                             row_meta.append({
@@ -569,11 +580,15 @@ class TaskWorklogTests(unittest.TestCase):
             rep = twm.fetch_report_data()
             self.assertTrue(rep["has_tab"])
             self.assertFalse(rep["empty"])
-            # Row 2 is hidden -> rows returned: [row1, row3, row4, row5(bordered)]
-            self.assertEqual(len(rep["rows"]), 4)
+            # Rows 1..8 minus hidden row 2 -> 7 visible rows
+            self.assertEqual(len(rep["rows"]), 7)
             flat_texts = [c["v"] for row in rep["rows"] for c in row if c["v"]]
             self.assertNotIn("Hidden Helper", flat_texts)
             self.assertEqual(rep["merges"], [{"r": 0, "c": 0, "rs": 1, "cs": 4}])
+            self.assertEqual(rep["filter"]["month"], "October")
+            self.assertEqual(rep["filter"]["year"], "2026")
+            self.assertEqual(rep["filter"]["month_options"], ["October", "November", "December"])
+            self.assertIn("2026", rep["filter"]["year_options"])
 
             title_cell = rep["rows"][0][0]
             self.assertEqual(title_cell["v"], "Monthly Employee Performance Report")
@@ -591,20 +606,35 @@ class TaskWorklogTests(unittest.TestCase):
             self.assertEqual(score_cell["ha"], "r")
             self.assertEqual(score_cell["w"], 1)
 
-            sig_cell = rep["rows"][3][0]
+            sig_cell = rep["rows"][6][0]
             self.assertEqual(sig_cell["bb"], "1px dashed #000000")
             self.assertEqual(self.mem.written_ranges, [])
             self.assertEqual(self.mem.batch_requests, [])
 
-            # Works identically as read-only view in Supervision mode
+            # Filtering via H7 & I7 updates ONLY Report!H7:I7
+            filtered = twm.update_report_filter({"month": "november", "year": "2027"})
+            self.assertEqual(self.mem.written_ranges, ["'Report'!H7:I7"])
+            self.assertEqual(filtered["filter"]["month"], "November")
+            self.assertEqual(filtered["filter"]["year"], "2027")
+
+            with self.assertRaises(twm.ApiError) as bad_filter:
+                twm.update_report_filter({"month": "", "year": "2027"})
+            self.assertEqual(bad_filter.exception.status, 400)
+
+            # Works in Supervision mode as well (view & filter H7:I7)
             twm.apply_setup({
                 "sheet_url": "1SampleSheetId1234567890abcdef",
                 "role_mode": "supervisor",
             })
+            self.mem.written_ranges.clear()
             rep_sup = twm.fetch_report_data()
             self.assertFalse(rep_sup["empty"])
-            self.assertEqual(len(rep_sup["rows"]), 4)
+            self.assertEqual(rep_sup["filter"]["month"], "November")
             self.assertEqual(self.mem.written_ranges, [])
+            rep_sup_filtered = twm.update_report_filter({"month": "December", "year": "2026"})
+            self.assertEqual(self.mem.written_ranges, ["'Report'!H7:I7"])
+            self.assertEqual(rep_sup_filtered["filter"]["month"], "December")
+            self.assertEqual(rep_sup_filtered["filter"]["year"], "2026")
 
             # Missing Report tab degrades cleanly
             self.mem.meta["sheets"] = [s for s in self.mem.meta["sheets"] if s["properties"]["title"] != "Report"]
@@ -612,6 +642,9 @@ class TaskWorklogTests(unittest.TestCase):
             self.assertFalse(rep_missing["has_tab"])
             self.assertTrue(rep_missing["empty"])
             self.assertEqual(rep_missing["rows"], [])
+            with self.assertRaises(twm.ApiError) as missing_filter:
+                twm.update_report_filter({"month": "October", "year": "2026"})
+            self.assertEqual(missing_filter.exception.status, 404)
 
 
 if __name__ == "__main__":
