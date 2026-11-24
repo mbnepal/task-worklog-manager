@@ -1204,6 +1204,7 @@
           <option value="deadline_asc">Deadline (Soonest)</option>
           <option value="entry_desc">Entry Date ↓</option>
         </select>
+        <button type="button" class="btn btn-tab-tasks" id="filterAddTaskBtn" onclick="openTaskModal()">+ Add Task</button>
       </div>
 
       <div class="table-card">
@@ -1261,6 +1262,7 @@
           <option value="time_desc">Longest Time</option>
         </select>
         <button type="button" class="btn btn-sm" onclick="exportWorklogsMd()" title="Download Work_Log_History.md">⬇ Export MD</button>
+        <button type="button" class="btn btn-tab-worklog" id="filterAddWorklogBtn" onclick="openWorklogModal()">+ Add Work Log</button>
       </div>
 
       <div class="table-card">
@@ -2171,7 +2173,10 @@
       const primaryBtn = document.getElementById("primaryNewBtn");
       const btnTheme = tab === "tasks" ? "btn-tab-tasks" : tab === "worklogs" ? "btn-tab-worklog" : tab === "perf" ? "btn-tab-perf" : "btn-tab-report";
       primaryBtn.className = `btn ${btnTheme}`;
-      primaryBtn.classList.toggle("hidden", isSupervisorMode() || tab === "report");
+      const isSup = isSupervisorMode();
+      primaryBtn.classList.toggle("hidden", isSup || tab === "report");
+      document.getElementById("filterAddTaskBtn").classList.toggle("hidden", isSup);
+      document.getElementById("filterAddWorklogBtn").classList.toggle("hidden", isSup);
       primaryBtn.textContent =
         tab === "tasks" ? "+ New Task" : tab === "worklogs" ? "+ New Work Log" : "+ New Month";
       if (tab === "report") {
@@ -2274,6 +2279,7 @@
       });
 
       const isSup = isSupervisorMode();
+      document.getElementById("filterAddTaskBtn").classList.toggle("hidden", isSup);
       const tbody = document.getElementById("tasksTbody");
       if (!filtered.length) {
         tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No tasks match the current filters.</td></tr>`;
@@ -2414,6 +2420,7 @@
       const filteredMins = filtered.reduce((acc, w) => acc + (parseFloat(w.time_minutes) || 0), 0);
 
       const isSup = isSupervisorMode();
+      document.getElementById("filterAddWorklogBtn").classList.toggle("hidden", isSup);
       const wlBanner = document.getElementById("worklogModeBanner");
       if (isSup) {
         wlBanner.textContent = "Supervision Mode (View Only): Work Log contains only employee entries and has no supervisor comment fields.";
