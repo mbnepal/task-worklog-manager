@@ -646,6 +646,19 @@ def validate_perf_achievement_val(raw_val, h_options: list[str] | None = None, d
     return format_num_cell(n)
 
 
+def validate_perf_supervisor_score(raw_val, desc: str = ""):
+    s = "" if raw_val is None else str(raw_val).strip()
+    if not s:
+        return ""
+    try:
+        n = float(s)
+    except ValueError as exc:
+        raise ApiError(f"Supervisor Score for '{desc or 'row'}' must be a valid number.") from exc
+    if n != n or n in (float("inf"), float("-inf")):
+        raise ApiError(f"Supervisor Score for '{desc or 'row'}' must be a valid number.")
+    return format_num_cell(n)
+
+
 def fetch_perf_h_validations(svc, sid: str, perf_entry: dict | None, p_rows: list[list]) -> dict[int, list[str]]:
     if not perf_entry or not p_rows:
         return {}
@@ -1695,20 +1708,30 @@ def update_perf_achievements(payload: dict) -> dict:
 
 def update_perf_supervisor_remarks(payload: dict) -> dict:
     cfg = load_config()
-    require_supervisor_mode(cfg, "Supervisor Remarks (Col L)")
+    require_supervisor_mode(cfg, "Supervisor Score (Col K) and Remarks (Col L)")
     updates_list = payload.get("updates")
     if not isinstance(updates_list, list) or not updates_list:
-        raise ApiError("At least one Supervisor Remark update is required.")
+        raise ApiError("At least one Supervisor update is required.")
 
     with sheets_lock:
         svc = get_sheets_service()
         sid, qp, _perf_state, month_obj, by_row = _load_perf_write_context(svc, cfg, payload.get("year"), payload.get("month"))
         data_updates = []
         for u in updates_list:
-            rn, _rec = _resolve_perf_update_row(by_row, month_obj, u)
-            remark_val = str(u.get("supervisor_remarks") or "").strip()
-            # Strictly write ONLY Column L (Supervisor Remarks)
-            data_updates.append({"range": f"{qp}!L{rn}", "values": [[remark_val]]})
+            rn, rec = _resolve_perf_update_row(by_row, month_obj, u)
+            has_score = "supervisor_score" in u
+            has_remark = "supervisor_remarks" in u
+            if not has_score and not has_remark:
+                raise ApiError(f"Row {rn} update must include supervisor_score or supervisor_remarks.")
+            score_val = validate_perf_supervisor_score(u.get("supervisor_score"), rec["description"]) if has_score else None
+            remark_val = str(u.get("supervisor_remarks") or "").strip() if has_remark else None
+            # Strictly write ONLY Column K (Supervisor Score) and/or Column L (Supervisor Remarks)
+            if has_score and has_remark:
+                data_updates.append({"range": f"{qp}!K{rn}:L{rn}", "values": [[score_val, remark_val]]})
+            elif has_score:
+                data_updates.append({"range": f"{qp}!K{rn}", "values": [[score_val]]})
+            else:
+                data_updates.append({"range": f"{qp}!L{rn}", "values": [[remark_val]]})
 
         svc.spreadsheets().values().batchUpdate(
             spreadsheetId=sid,
@@ -1943,7 +1966,7 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
                 self._send_json(update_worklog(int(m_wl.group(1)), payload))
             elif parsed.path == "/api/perf/achievements":
                 self._send_json(update_perf_achievements(payload))
-            elif parsed.path == "/api/perf/supervisor-remarks":
+            elif parsed.path in ("/api/perf/supervisor-remarks", "/api/perf/supervisor-review"):
                 self._send_json(update_perf_supervisor_remarks(payload))
             else:
                 self.send_error(404)

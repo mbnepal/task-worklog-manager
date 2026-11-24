@@ -738,6 +738,16 @@
     return formatNumCell(n);
   }
 
+  function validatePerfSupervisorScoreVal(rawVal, desc = "") {
+    const s = rawVal == null ? "" : String(rawVal).trim();
+    if (s === "") return "";
+    const n = Number(s);
+    if (!Number.isFinite(n)) {
+      throw new Error(`Supervisor Score for '${desc || "row"}' must be a valid number.`);
+    }
+    return formatNumCell(n);
+  }
+
   function buildSetupPayload(cfg, sheetUrl = "") {
     const cid = resolveClientId(cfg.client_id);
     const signedIn = loadSessionToken(cid);
@@ -1600,16 +1610,28 @@
       return await fetchBootstrapData(cfg);
     }
 
-    if (url === "/api/perf/supervisor-remarks" && method === "PUT") {
-      requireSupervisorMode(cfg, "Supervisor Remarks (Col L)");
+    if ((url === "/api/perf/supervisor-remarks" || url === "/api/perf/supervisor-review") && method === "PUT") {
+      requireSupervisorMode(cfg, "Supervisor Score (Col K) and Remarks (Col L)");
       const updatesList = Array.isArray(payload.updates) ? payload.updates : [];
-      if (!updatesList.length) throw new Error("At least one Supervisor Remark update is required.");
+      if (!updatesList.length) throw new Error("At least one Supervisor update is required.");
 
       const { qp, monthObj, byRow } = await loadPerfWriteContext(payload.year, payload.month);
       const dataUpdates = updatesList.map(u => {
-        const { rn } = resolvePerfUpdateRow(byRow, monthObj, u);
-        const remarkVal = String(u.supervisor_remarks || "").trim();
-        // Strictly update ONLY Column L (Supervisor Remarks)
+        const { rn, rec } = resolvePerfUpdateRow(byRow, monthObj, u);
+        const hasScore = Object.prototype.hasOwnProperty.call(u, "supervisor_score");
+        const hasRemark = Object.prototype.hasOwnProperty.call(u, "supervisor_remarks");
+        if (!hasScore && !hasRemark) {
+          throw new Error(`Row ${rn} update must include supervisor_score or supervisor_remarks.`);
+        }
+        const scoreVal = hasScore ? validatePerfSupervisorScoreVal(u.supervisor_score, rec.description) : null;
+        const remarkVal = hasRemark ? String(u.supervisor_remarks || "").trim() : null;
+        // Strictly update ONLY Column K (Supervisor Score) and/or Column L (Supervisor Remarks)
+        if (hasScore && hasRemark) {
+          return { range: `${qp}!K${rn}:L${rn}`, values: [[scoreVal, remarkVal]] };
+        }
+        if (hasScore) {
+          return { range: `${qp}!K${rn}`, values: [[scoreVal]] };
+        }
         return { range: `${qp}!L${rn}`, values: [[remarkVal]] };
       });
 

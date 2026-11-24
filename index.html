@@ -722,6 +722,42 @@
       border-color: #d97706;
       background: #fffbeb;
     }
+    .perf-sup-score-input {
+      width: 82px;
+      border-color: #a5b4fc;
+      background: #eef2ff;
+    }
+    .perf-sup-score-input:focus {
+      border-color: #4f46e5;
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+    }
+    .perf-sup-score-input.dirty {
+      border-color: #d97706;
+      background: #fffbeb;
+    }
+    .employee-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #f1f5f9;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .employee-badge.highlighted {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1.5px solid #f59e0b;
+      font-size: 13px;
+      font-weight: 800;
+      padding: 4px 12px;
+      box-shadow: 0 2px 6px rgba(245, 158, 11, 0.24);
+      letter-spacing: -0.01em;
+    }
 
     .hidden { display: none !important; }
     .highlight-req { border-color: #d97706 !important; background: #fffbeb !important; }
@@ -735,7 +771,7 @@
         <div>
           <h1>Tasks &amp; Work Log Manager</h1>
           <div class="brand-sub">
-            <span id="employeeBadge">Loading...</span>
+            <span id="employeeBadge" class="employee-badge">Loading...</span>
             <span id="sheetLinkSep" class="hidden">•</span>
             <a id="sheetLink" class="sheet-link hidden" href="#" target="_blank" rel="noopener">Open Google Sheet ↗</a>
           </div>
@@ -1390,6 +1426,7 @@
       perfSelectedKey: "",
       perfDrafts: {},
       perfSupDrafts: {},
+      perfSupScoreDrafts: {},
       perfNewDrafts: [],
       setupRoleDirty: false,
       taskStatusFilter: "all",
@@ -1544,6 +1581,7 @@
       state.perf = data.perf || { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" };
       state.perfDrafts = {};
       state.perfSupDrafts = {};
+      state.perfSupScoreDrafts = {};
       document.getElementById("roleModeBadge").classList.toggle("hidden", !isSupervisorMode());
       if (data.created_month_key) {
         state.perfSelectedKey = data.created_month_key;
@@ -1579,8 +1617,10 @@
         authBtn.classList.add("hidden");
       }
 
+      const empBadge = document.getElementById("employeeBadge");
       if (data.needs_setup) {
-        document.getElementById("employeeBadge").textContent = data.needs_signin
+        empBadge.className = "employee-badge";
+        empBadge.textContent = data.needs_signin
           ? "Google Sign-In required"
           : "No Google Sheet configured";
         document.getElementById("activeSheetTitleBadge").textContent = data.needs_signin
@@ -1588,8 +1628,9 @@
           : "Setup Required";
         document.getElementById("activeSheetTitleBadge").className = "badge badge-amber";
       } else {
-        document.getElementById("employeeBadge").textContent =
-          `${state.employee.name || "Employee"}${state.employee.id ? " • ID " + state.employee.id : ""}${state.employee.department ? " • " + state.employee.department : ""}`;
+        empBadge.className = "employee-badge highlighted";
+        empBadge.textContent =
+          `👤 ${state.employee.name || "Employee"}${state.employee.id ? " • ID " + state.employee.id : ""}${state.employee.department ? " • " + state.employee.department : ""}`;
         const titleBadge = document.getElementById("activeSheetTitleBadge");
         titleBadge.textContent = state.spreadsheet.title || "Connected Sheet";
         titleBadge.className = "badge badge-blue";
@@ -1668,7 +1709,7 @@
         const isSup = isSupervisorMode();
         pSel.innerHTML = pMonths
           .map(m => {
-            const tag = isSup ? " (Sup Remarks Editable)" : (m.is_latest ? " (Latest • Edit Achievement)" : " (View Only)");
+            const tag = isSup ? " (Sup Score & Remarks Editable)" : (m.is_latest ? " (Latest • Edit Achievement)" : " (View Only)");
             return `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)}${tag}</option>`;
           })
           .join("");
@@ -1989,33 +2030,40 @@
         : "Syncs Google Sheet ('Work log') & optional local Work_Log_History.md";
     }
 
-    // --- PERF STANDARD RENDER & ACHIEVEMENT-ONLY / SUPERVISION-REMARKS EDITING ---
+    // --- PERF STANDARD RENDER & ACHIEVEMENT-ONLY / SUPERVISION REVIEW EDITING ---
     function onPerfMonthChange() {
       const nextKey = document.getElementById("perfMonthSelect").value;
       state.perfSelectedKey = nextKey;
       state.perfDrafts = {};
       state.perfSupDrafts = {};
+      state.perfSupScoreDrafts = {};
       renderPerfStandard();
+    }
+
+    function _updatePerfDraft(draftsMap, rowNum, val, origVal) {
+      const cleaned = String(val ?? "").trim();
+      const orig = String(origVal ?? "").trim();
+      if (cleaned === orig) delete draftsMap[rowNum];
+      else draftsMap[rowNum] = String(val ?? "");
+      syncPerfDirtyUi(rowNum);
     }
 
     function onPerfAchievementInput(rowNum, val) {
       const item = (state.perf.items || []).find(it => it.row === rowNum);
       if (!item) return;
-      const cleaned = String(val ?? "").trim();
-      const orig = String(item.achievement ?? "").trim();
-      if (cleaned === orig) delete state.perfDrafts[rowNum];
-      else state.perfDrafts[rowNum] = String(val ?? "");
-      syncPerfDirtyUi(rowNum);
+      _updatePerfDraft(state.perfDrafts, rowNum, val, item.achievement);
+    }
+
+    function onPerfSupervisorScoreInput(rowNum, val) {
+      const item = (state.perf.items || []).find(it => it.row === rowNum);
+      if (!item) return;
+      _updatePerfDraft(state.perfSupScoreDrafts, rowNum, val, item.supervisor_score);
     }
 
     function onPerfSupervisorRemarkInput(rowNum, val) {
       const item = (state.perf.items || []).find(it => it.row === rowNum);
       if (!item) return;
-      const cleaned = String(val ?? "").trim();
-      const orig = String(item.supervisor_remarks ?? "").trim();
-      if (cleaned === orig) delete state.perfSupDrafts[rowNum];
-      else state.perfSupDrafts[rowNum] = String(val ?? "");
-      syncPerfDirtyUi(rowNum);
+      _updatePerfDraft(state.perfSupDrafts, rowNum, val, item.supervisor_remarks);
     }
 
     function syncPerfDirtyUi(changedRow = null) {
@@ -2023,17 +2071,20 @@
       if (changedRow !== null) {
         const achEl = document.getElementById(`perf_ach_${changedRow}`);
         if (achEl) achEl.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfDrafts, changedRow));
+        const supScoreEl = document.getElementById(`perf_sup_score_${changedRow}`);
+        if (supScoreEl) supScoreEl.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfSupScoreDrafts, changedRow));
         const supEl = document.getElementById(`perf_sup_rem_${changedRow}`);
         if (supEl) supEl.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfSupDrafts, changedRow));
       }
-      const drafts = isSup ? state.perfSupDrafts : state.perfDrafts;
-      const dirtyCount = Object.keys(drafts).length;
+      const dirtyCount = isSup
+        ? new Set([...Object.keys(state.perfSupScoreDrafts), ...Object.keys(state.perfSupDrafts)]).size
+        : Object.keys(state.perfDrafts).length;
       const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
       const isEditable = isSup ? Boolean(monthObj) : Boolean(monthObj && monthObj.is_latest);
       document.getElementById("savePerfAchBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
       document.getElementById("discardPerfAchBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
       document.getElementById("toolbarSavePerfBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
-      const label = isSup ? "Save Sup Comments" : "Save Achievements";
+      const label = isSup ? "Save Sup Score & Remarks" : "Save Achievements";
       document.getElementById("savePerfAchBtn").textContent = `${label} (${dirtyCount})`;
       document.getElementById("toolbarSavePerfBtn").textContent = `✓ ${label} (${dirtyCount})`;
     }
@@ -2041,6 +2092,7 @@
     function discardPerfEdits() {
       state.perfDrafts = {};
       state.perfSupDrafts = {};
+      state.perfSupScoreDrafts = {};
       renderPerfStandard();
     }
 
@@ -2056,7 +2108,7 @@
 
       newBtn.classList.toggle("hidden", isSup);
       document.getElementById("perfFooterRuleHint").textContent = isSup
-        ? "Supervision mode: Only Supervisor Remarks / Comments (Col L) are editable; Achievement, Scores, Supervisor Score, and structure stay locked."
+        ? "Supervision mode: Supervisor Score (Col K) and Supervisor Remarks (Col L) are editable; Achievement, Self Remarks, and Auto Score stay locked."
         : "Only Achievement (Col H) on the current/new month is editable; past months are view-only and formulas/weights/supervisor scores stay locked.";
 
       if (!perf.has_tab) {
@@ -2091,7 +2143,7 @@
         <div class="kpi-card">
           <div class="kpi-label">Selected Month</div>
           <div class="kpi-value" style="font-size:20px;">${escapeHtml(monthObj.label)}</div>
-          <div class="kpi-sub">${isSup ? "Supervision • Sup Comments editable" : (isAchEditable ? "Latest month • Achievement editable" : "Past month • View only")}</div>
+          <div class="kpi-sub">${isSup ? "Supervision • Sup Score & Remarks editable" : (isAchEditable ? "Latest month • Achievement editable" : "Past month • View only")}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Total Weight</div>
@@ -2113,7 +2165,7 @@
       if (isSup) {
         banner.className = "check-banner ok";
         bannerText.textContent =
-          `Supervision Mode (${monthObj.label}): Only Supervisor Remarks / Comments (Col L) are editable. Achievement (Col H), Scores, and Supervisor Score remain locked.`;
+          `Supervision Mode (${monthObj.label}): Supervisor Score (Col K) and Supervisor Remarks (Col L) are editable. Achievement (Col H), Self Remarks, and Auto Score remain locked.`;
       } else if (isAchEditable) {
         banner.className = "check-banner ok";
         bannerText.textContent =
@@ -2142,6 +2194,10 @@
             ? state.perfDrafts[it.row]
             : (it.achievement ?? "");
           const isAchDirty = Object.prototype.hasOwnProperty.call(state.perfDrafts, it.row);
+          const curSupScore = Object.prototype.hasOwnProperty.call(state.perfSupScoreDrafts, it.row)
+            ? state.perfSupScoreDrafts[it.row]
+            : (it.supervisor_score ?? "");
+          const isSupScoreDirty = Object.prototype.hasOwnProperty.call(state.perfSupScoreDrafts, it.row);
           const curSupRem = Object.prototype.hasOwnProperty.call(state.perfSupDrafts, it.row)
             ? state.perfSupDrafts[it.row]
             : (it.supervisor_remarks ?? "");
@@ -2160,6 +2216,10 @@
           } else {
             achCellHtml = `<input id="perf_ach_${it.row}" type="number" step="any" min="0" class="perf-ach-input ${isAchDirty ? "dirty" : ""}" value="${escapeHtml(curAch)}" oninput="onPerfAchievementInput(${it.row}, this.value)" />`;
           }
+
+          const supScoreCellHtml = isSup
+            ? `<input id="perf_sup_score_${it.row}" type="number" step="any" class="perf-ach-input perf-sup-score-input ${isSupScoreDirty ? "dirty" : ""}" placeholder="0" value="${escapeHtml(curSupScore)}" oninput="onPerfSupervisorScoreInput(${it.row}, this.value)" />`
+            : `<span class="mono">${escapeHtml(it.supervisor_score !== "" ? it.supervisor_score : "—")}</span>`;
 
           let remarksCellHtml;
           if (isSup) {
@@ -2188,7 +2248,7 @@
               <td class="mono">${escapeHtml(it.target || "0")}</td>
               <td>${achCellHtml}</td>
               <td class="mono" style="font-weight:700; color:var(--primary);">${escapeHtml(it.score !== "" ? it.score : "—")}</td>
-              <td class="mono">${escapeHtml(it.supervisor_score !== "" ? it.supervisor_score : "—")}</td>
+              <td>${supScoreCellHtml}</td>
               <td>${remarksCellHtml}</td>
             </tr>
           `;
@@ -2205,14 +2265,9 @@
       else await savePerfAchievements();
     }
 
-    async function _submitPerfColumnSave({ draftsMap, url, buildUpdate, emptyMsg, successUnit }) {
+    async function _submitPerfUpdates({ updates, url, emptyMsg, successUnit }) {
       const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
       if (!monthObj) return;
-      const updates = Object.keys(draftsMap).map(rk => {
-        const rn = Number(rk);
-        const item = (state.perf.items || []).find(it => it.row === rn);
-        return buildUpdate(rn, draftsMap[rn], item);
-      });
       if (!updates.length) {
         showToast(emptyMsg, "info");
         return;
@@ -2249,14 +2304,18 @@
         showToast("Only the latest month allows editing Achievement.", "error");
         return;
       }
-      await _submitPerfColumnSave({
-        draftsMap: state.perfDrafts,
-        url: "/api/perf/achievements",
-        buildUpdate: (row, val, item) => ({
-          row,
-          achievement: val,
+      const updates = Object.keys(state.perfDrafts).map(rk => {
+        const rn = Number(rk);
+        const item = (state.perf.items || []).find(it => it.row === rn);
+        return {
+          row: rn,
+          achievement: state.perfDrafts[rn],
           expected_description: item ? item.description : "",
-        }),
+        };
+      });
+      await _submitPerfUpdates({
+        updates,
+        url: "/api/perf/achievements",
         emptyMsg: "No Achievement changes to save.",
         successUnit: "Achievement value(s)",
       });
@@ -2264,19 +2323,30 @@
 
     async function savePerfSupervisorRemarks() {
       if (!isSupervisorMode()) {
-        showToast("Enable Supervision mode in Setup to save Supervisor comments.", "error");
+        showToast("Enable Supervision mode in Setup to save Supervisor updates.", "error");
         return;
       }
-      await _submitPerfColumnSave({
-        draftsMap: state.perfSupDrafts,
-        url: "/api/perf/supervisor-remarks",
-        buildUpdate: (row, val, item) => ({
-          row,
-          supervisor_remarks: val,
+      const rowKeys = [...new Set([...Object.keys(state.perfSupScoreDrafts), ...Object.keys(state.perfSupDrafts)])];
+      const updates = rowKeys.map(rk => {
+        const rn = Number(rk);
+        const item = (state.perf.items || []).find(it => it.row === rn);
+        const entry = {
+          row: rn,
           expected_description: item ? item.description : "",
-        }),
-        emptyMsg: "No Supervisor comment changes to save.",
-        successUnit: "Supervisor comment(s)",
+        };
+        if (Object.prototype.hasOwnProperty.call(state.perfSupScoreDrafts, rn)) {
+          entry.supervisor_score = state.perfSupScoreDrafts[rn];
+        }
+        if (Object.prototype.hasOwnProperty.call(state.perfSupDrafts, rn)) {
+          entry.supervisor_remarks = state.perfSupDrafts[rn];
+        }
+        return entry;
+      });
+      await _submitPerfUpdates({
+        updates,
+        url: "/api/perf/supervisor-review",
+        emptyMsg: "No Supervisor Score or Remark changes to save.",
+        successUnit: "Supervisor review row(s)",
       });
     }
 
@@ -3153,7 +3223,7 @@
       if (normalized === "supervisor") {
         hintBox.className = "check-banner ok";
         hintBox.textContent =
-          "Supervision Mode (for supervisors): All employee fields, Work Logs, Achievements, and scores stay locked. Only Supervisor comments (Tasks Col T & Perf Standard Col L) are allowed.";
+          "Supervision Mode (for supervisors): All employee fields, Work Logs, and Achievements stay locked. Only Supervisor comments (Tasks Col T) and Perf Standard Supervisor Score (Col K) + Remarks (Col L) are editable.";
         hintBox.classList.remove("hidden");
       } else {
         hintBox.classList.add("hidden");

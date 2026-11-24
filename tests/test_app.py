@@ -433,18 +433,43 @@ class TaskWorklogTests(unittest.TestCase):
             self.assertEqual(row9["supervisor_comments"], "Reviewed & approved")
             self.assertEqual(row9["detail"], "Task One")
 
-            # Valid Perf Standard supervisor remark updates ONLY Perf Standard Col L
+            # Valid Perf Standard supervisor review updates ONLY Col K (score) and Col L (remarks)
             self.mem.written_ranges.clear()
             res_perf = twm.update_perf_supervisor_remarks({
                 "year": "2026",
                 "month": "October",
-                "updates": [{"row": 6, "supervisor_remarks": "Need stricter punctuality", "expected_description": "Late Arrival/ Early Exit"}],
+                "updates": [{
+                    "row": 6,
+                    "supervisor_score": "-2",
+                    "supervisor_remarks": "Need stricter punctuality",
+                    "expected_description": "Late Arrival/ Early Exit",
+                }],
             })
-            self.assertEqual(self.mem.written_ranges, ["'Perf Standard'!L6"])
+            self.assertEqual(self.mem.written_ranges, ["'Perf Standard'!K6:L6"])
             perf6 = [it for it in res_perf["perf"]["items"] if it["row"] == 6][0]
+            self.assertEqual(perf6["supervisor_score"], "-2")
             self.assertEqual(perf6["supervisor_remarks"], "Need stricter punctuality")
-            self.assertEqual(perf6["supervisor_score"], "-1")
             self.assertEqual(perf6["achievement"], "0")
+
+            # Editing ONLY Col K preserves existing Col L remarks
+            self.mem.written_ranges.clear()
+            res_score_only = twm.update_perf_supervisor_remarks({
+                "year": "2026",
+                "month": "October",
+                "updates": [{"row": 6, "supervisor_score": "0", "expected_description": "Late Arrival/ Early Exit"}],
+            })
+            self.assertEqual(self.mem.written_ranges, ["'Perf Standard'!K6"])
+            perf6_after = [it for it in res_score_only["perf"]["items"] if it["row"] == 6][0]
+            self.assertEqual(perf6_after["supervisor_score"], "0")
+            self.assertEqual(perf6_after["supervisor_remarks"], "Need stricter punctuality")
+
+            # Non-numeric Supervisor Score rejected
+            with self.assertRaises(twm.ApiError):
+                twm.update_perf_supervisor_remarks({
+                    "year": "2026",
+                    "month": "October",
+                    "updates": [{"row": 6, "supervisor_score": "abc", "expected_description": "Late Arrival/ Early Exit"}],
+                })
 
             # Switch back to Employee mode: supervisor-only helpers reject with 403
             boot_emp = twm.apply_setup({
