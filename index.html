@@ -1674,7 +1674,7 @@
 
           <div class="field">
             <label>
-              <span id="sf_sheet_label">Your Google Sheet Link or ID <span class="req">*</span></span>
+              <span id="sf_sheet_label">Employee Monthly Reporting Google Sheet ID <span class="req">*</span></span>
             </label>
             <input class="input" type="text" id="sf_sheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." />
           </div>
@@ -3588,8 +3588,8 @@
       empBtn.classList.toggle("active", normalized === "employee");
       supBtn.classList.toggle("sup-active", normalized === "supervisor");
       sheetLabel.innerHTML = normalized === "supervisor"
-        ? 'Staff Google Sheet Link or ID <span class="req">*</span>'
-        : 'Your Google Sheet Link or ID <span class="req">*</span>';
+        ? 'Employee Monthly Reporting Google Sheet ID (Supervision) <span class="req">*</span>'
+        : 'Employee Monthly Reporting Google Sheet ID <span class="req">*</span>';
 
       if (normalized === "supervisor") {
         hintBox.className = "check-banner ok";
@@ -4181,8 +4181,8 @@
         const sheetRowNum = rowNums && rowNums[r] != null ? Number(rowNums[r]) : (r + 1);
         const vals = rowTexts(r);
 
-        // From Row 45 and below: does NOT fall under Plan for Coming Month; keep for tabular section below
-        if (sheetRowNum >= 45) {
+        // From Row 44 and below (rows 44, 45, 46+): does NOT fall under Plan for Coming Month; keep for tabular section below
+        if (sheetRowNum >= 44) {
           belowRowIndices.push(r);
           continue;
         }
@@ -4295,6 +4295,12 @@
         if (hasText || hasStyledCell || mergedRowSet.has(r)) keptIndices.push(r);
       });
       while (keptIndices.length) {
+        const firstIdx = keptIndices[0];
+        const hasText = (rows[firstIdx] || []).some(c => String(c?.v ?? "").trim() !== "");
+        if (hasText) break;
+        keptIndices.shift();
+      }
+      while (keptIndices.length) {
         const lastIdx = keptIndices[keptIndices.length - 1];
         const hasText = (rows[lastIdx] || []).some(c => String(c?.v ?? "").trim() !== "");
         if (hasText) break;
@@ -4303,7 +4309,7 @@
       if (!keptIndices.length) return "";
 
       // Optional leading single-cell banner row becomes section card title
-      let cardTitle = "Additional Details & Summary (Row 45+)";
+      let cardTitle = "Additional Details & Summary (Row 44+)";
       const firstRowVals = (rows[keptIndices[0]] || []).map(c => String(c?.v ?? "").trim()).filter(Boolean);
       const firstHasMultiMerge = rawMerges.some(m => Number(m.r) === keptIndices[0] && Number(m.rs || 1) === 1 && Number(m.cs || 1) >= 4);
       if (firstRowVals.length === 1 && firstHasMultiMerge && keptIndices.length > 1) {
