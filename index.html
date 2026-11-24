@@ -1261,7 +1261,7 @@
           <option value="row_asc">Oldest First</option>
           <option value="time_desc">Longest Time</option>
         </select>
-        <button type="button" class="btn btn-sm" onclick="exportWorklogsMd()" title="Download Work_Log_History.md">⬇ Export MD</button>
+        <button type="button" class="btn btn-sm" id="exportWorklogMdBtn" onclick="exportWorklogsMd()" title="Download Work_Log_History.md">⬇ Export MD</button>
         <button type="button" class="btn btn-tab-worklog" id="filterAddWorklogBtn" onclick="openWorklogModal()">+ Add Work Log</button>
       </div>
 
@@ -1813,12 +1813,39 @@
     </div>
   </div>
 
+  <!-- SIGN-IN REQUIRED FLOATING MODAL -->
+  <div class="modal-backdrop" id="signInModalBackdrop" style="z-index: 95;">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>Sign In Required to Continue</h2>
+      </div>
+      <div class="modal-body">
+        <div class="check-banner warn" id="signInSheetSummary">
+          Your Google Sheet is linked, but you must sign in with your Google account before accessing or modifying records.
+        </div>
+        <div id="signInModalError" class="check-banner warn hidden" style="border-color:#fca5a5; background:#fef2f2; color:#991b1b;"></div>
+        <p style="margin:0; font-size:13px; color:var(--muted); line-height:1.5;">
+          All sheet operation buttons remain locked until you sign in with Google for this session.
+        </p>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button type="button" class="btn" id="signInOpenSetupBtn" onclick="openSetupFromSignIn()">⚙ Setup</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn" id="modalSwitchAcctBtn" onclick="signInAndLoad(true)">Switch Account</button>
+          <button type="button" class="btn btn-primary" id="modalSignInBtn" onclick="signInAndLoad(false)">Sign in with Google</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-wrap" id="toastWrap"></div>
 
   <script>
     let state = {
       appMode: "browser",
       activeTab: "tasks",
+      needsSetup: false,
+      needsSignin: false,
       spreadsheet: {},
       setup: { sync_md_default: false, saved_sheets: [] },
       employee: {},
@@ -1910,6 +1937,12 @@
           if (err && err.status === 409) {
             showToast(err.message || "Sheet changed externally — refreshing.", "error");
             await loadBootstrap(false);
+          } else if (err && /sign-in session expired/i.test(err.message || "")) {
+            state.needsSetup = true;
+            state.needsSignin = true;
+            if (state.setup) state.setup.has_token = false;
+            syncOperationButtonsState();
+            openSignInModal(err.message);
           }
           throw err;
         }
@@ -1929,7 +1962,112 @@
       return data;
     }
 
+    function isOperationBlocked() {
+      return Boolean(
+        state.needsSignin ||
+        state.needsSetup ||
+        (state.appMode === "browser" && state.setup?.auth_mode === "oauth" && !state.setup?.has_token)
+      );
+    }
+
+    function openSignInModal(errMsg = "") {
+      const sumEl = document.getElementById("signInSheetSummary");
+      const errEl = document.getElementById("signInModalError");
+      const sid = state.setup?.spreadsheet_id || "";
+      const saved = (state.setup?.saved_sheets || []).find(s => s.spreadsheet_id === sid);
+      const sheetName = saved?.title || (sid ? `Sheet ${sid.slice(0, 12)}...` : "Google Sheet");
+      const modeLabel = isSupervisorMode() ? "Supervision (Supervisor)" : "Employee Mode";
+      if (sumEl) {
+        sumEl.textContent = `Saved Sheet: "${sheetName}" (${modeLabel}). Click "Sign in with Google" to continue.`;
+      }
+      if (errEl) {
+        if (errMsg) {
+          errEl.textContent = errMsg;
+          errEl.classList.remove("hidden");
+        } else {
+          errEl.classList.add("hidden");
+          errEl.textContent = "";
+        }
+      }
+      document.getElementById("signInModalBackdrop").classList.add("open");
+    }
+
+    function closeSignInModal() {
+      document.getElementById("signInModalBackdrop").classList.remove("open");
+    }
+
+    function openSetupFromSignIn() {
+      closeSignInModal();
+      openSetupModal();
+    }
+
+    function requireAuthIfBlocked() {
+      if (!isOperationBlocked()) return false;
+      if (state.needsSignin || (state.appMode === "browser" && state.setup?.spreadsheet_id && !state.setup?.has_token)) {
+        openSignInModal("Please sign in with Google to perform sheet operations.");
+      } else {
+        openSetupModal();
+      }
+      return true;
+    }
+
+    function syncOperationButtonsState() {
+      const blocked = isOperationBlocked();
+      const opIds = [
+        "primaryNewBtn",
+        "refreshBtn",
+        "filterAddTaskBtn",
+        "filterAddWorklogBtn",
+        "exportWorklogMdBtn",
+        "newPerfMonthBtn",
+        "perfMonthSelect",
+        "reportFilterMonth",
+        "reportFilterYear",
+        "reportApplyFilterBtn",
+        "reportModeWebBtn",
+        "reportModeSheetBtn",
+        "reportReloadBtn",
+        "reportPrintBtn",
+      ];
+      opIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (blocked) {
+          el.disabled = true;
+          el.setAttribute("aria-disabled", "true");
+        } else {
+          el.removeAttribute("aria-disabled");
+        }
+      });
+      if (!blocked) {
+        const refreshEl = document.getElementById("refreshBtn");
+        const primaryEl = document.getElementById("primaryNewBtn");
+        const addTaskEl = document.getElementById("filterAddTaskBtn");
+        const addWlEl = document.getElementById("filterAddWorklogBtn");
+        const expEl = document.getElementById("exportWorklogMdBtn");
+        const perfSelEl = document.getElementById("perfMonthSelect");
+        const webModeEl = document.getElementById("reportModeWebBtn");
+        const sheetModeEl = document.getElementById("reportModeSheetBtn");
+        const repReloadEl = document.getElementById("reportReloadBtn");
+        if (refreshEl) refreshEl.disabled = false;
+        if (primaryEl) primaryEl.disabled = false;
+        if (addTaskEl) addTaskEl.disabled = false;
+        if (addWlEl) addWlEl.disabled = false;
+        if (expEl) expEl.disabled = false;
+        if (perfSelEl) perfSelEl.disabled = false;
+        if (webModeEl) webModeEl.disabled = false;
+        if (sheetModeEl) sheetModeEl.disabled = false;
+        if (repReloadEl && !state.reportLoading) repReloadEl.disabled = false;
+      }
+      const healthEl = document.getElementById("healthPill");
+      if (healthEl) {
+        healthEl.style.pointerEvents = blocked ? "none" : "";
+        healthEl.style.opacity = blocked ? "0.75" : "";
+      }
+    }
+
     function exportWorklogsMd() {
+      if (requireAuthIfBlocked()) return;
       if (!state.worklogs.length) {
         showToast("No work log entries to export.", "error");
         return;
@@ -1950,18 +2088,25 @@
         if (data.needs_setup) {
           if (data.needs_signin) {
             document.getElementById("loadErrorText").textContent =
-              "Your Google Sheet link is saved. Click 'Sign in with Google' to load your records.";
+              "Your Google Sheet link is saved. Sign in with Google to unlock operations and load your records.";
             document.getElementById("bannerSignInBtn").classList.remove("hidden");
             errBanner.classList.remove("hidden");
+            if (!document.getElementById("setupModalBackdrop").classList.contains("open")) {
+              openSignInModal();
+            }
           } else {
             document.getElementById("loadErrorText").textContent =
               "No Google Sheet is configured yet. Paste your Google Sheet link in Setup.";
             document.getElementById("bannerSignInBtn").classList.add("hidden");
             errBanner.classList.remove("hidden");
+            closeSignInModal();
             openSetupModal();
           }
-        } else if (showMsg) {
-          showToast("Synced latest records from Google Sheets.", "success");
+        } else {
+          closeSignInModal();
+          if (showMsg) {
+            showToast("Synced latest records from Google Sheets.", "success");
+          }
         }
       } catch (err) {
         document.getElementById("loadErrorText").textContent = err.message;
@@ -1969,8 +2114,8 @@
         errBanner.classList.remove("hidden");
         showToast(err.message, "error");
       } finally {
-        btn.disabled = false;
         btn.textContent = "↻ Refresh";
+        syncOperationButtonsState();
       }
     }
 
@@ -1979,6 +2124,8 @@
     }
 
     function applyBootstrap(data) {
+      state.needsSetup = Boolean(data.needs_setup);
+      state.needsSignin = Boolean(data.needs_signin);
       state.spreadsheet = data.spreadsheet || {};
       state.setup = data.setup || { role_mode: "employee", sync_md_default: false, saved_sheets: [] };
       state.employee = data.employee || {};
@@ -2087,6 +2234,8 @@
       renderTasks();
       renderWorklogs();
       renderPerfStandard();
+      syncOperationButtonsState();
+      if (!data.needs_signin) closeSignInModal();
       if (!data.needs_setup && state.activeTab === "report") {
         loadReportGrid(false);
       }
@@ -2181,13 +2330,15 @@
         tab === "tasks" ? "+ New Task" : tab === "worklogs" ? "+ New Work Log" : "+ New Month";
       if (tab === "report") {
         updateReportPrintLinks();
-        if (!skipReportLoad && !state.reportGrid && !state.reportLoading && state.spreadsheet?.id) {
+        if (!skipReportLoad && !state.reportGrid && !state.reportLoading && !isOperationBlocked() && state.spreadsheet?.id) {
           loadReportGrid(false);
         }
       }
+      syncOperationButtonsState();
     }
 
     function openPrimaryNew() {
+      if (requireAuthIfBlocked()) return;
       if (isSupervisorMode()) {
         showToast("Supervision mode only allows adding Supervisor comments.", "error");
         return;
@@ -2567,7 +2718,7 @@
         return;
       }
 
-      newBtn.disabled = isSup || months.length === 0;
+      newBtn.disabled = isSup || months.length === 0 || isOperationBlocked();
       const monthObj = months.find(m => m.key === state.perfSelectedKey) || months[0] || null;
       if (!monthObj) {
         kpis.innerHTML = "";
@@ -2795,6 +2946,7 @@
     }
 
     function openNewPerfMonthModal() {
+      if (requireAuthIfBlocked()) return;
       if (isSupervisorMode()) {
         showToast("Supervision mode only allows adding Supervisor comments.", "error");
         return;
@@ -2938,6 +3090,9 @@
     }
     function closeModal(id) {
       document.getElementById(id).classList.remove("open");
+      if (id === "setupModalBackdrop" && state.needsSignin) {
+        openSignInModal();
+      }
     }
 
     // --- TASK MODAL LOGIC ---
@@ -2950,6 +3105,7 @@
     ];
 
     function openTaskModal(row = null, markCompleteMode = false) {
+      if (requireAuthIfBlocked()) return;
       const isSup = isSupervisorMode();
       hydrateModalDropdowns();
       const t = row ? state.tasks.find(x => x.row === row) : null;
@@ -3182,6 +3338,7 @@
 
     // --- WORK LOG MODAL LOGIC ---
     function openWorklogModal(row = null) {
+      if (requireAuthIfBlocked()) return;
       if (isSupervisorMode()) {
         showToast("Supervision mode cannot add or edit Work Log entries.", "error");
         return;
@@ -3917,8 +4074,17 @@
     async function signInAndLoad(forcePrompt = false) {
       const authBtn = document.getElementById("googleAuthBtn");
       const bannerBtn = document.getElementById("bannerSignInBtn");
-      authBtn.disabled = true;
-      bannerBtn.disabled = true;
+      const modalBtn = document.getElementById("modalSignInBtn");
+      const modalSwitchBtn = document.getElementById("modalSwitchAcctBtn");
+      const modalErr = document.getElementById("signInModalError");
+      if (authBtn) authBtn.disabled = true;
+      if (bannerBtn) bannerBtn.disabled = true;
+      if (modalBtn) {
+        modalBtn.disabled = true;
+        modalBtn.textContent = forcePrompt ? "Opening Google Login..." : "Signing in...";
+      }
+      if (modalSwitchBtn) modalSwitchBtn.disabled = true;
+      if (modalErr) modalErr.classList.add("hidden");
       try {
         const data = await apiFetch("/api/setup/reauth", {
           method: "POST",
@@ -3930,17 +4096,32 @@
         document.getElementById("loadErrorBanner").classList.add("hidden");
         applyBootstrap(data);
         if (data.needs_setup) {
-          openSetupModal();
+          if (data.needs_signin) {
+            openSignInModal();
+          } else {
+            closeSignInModal();
+            openSetupModal();
+          }
         } else {
+          closeSignInModal();
           showToast(`Signed in as ${data.setup?.user_email || "Google account"} ✓`, "success");
         }
       } catch (err) {
         document.getElementById("loadErrorText").textContent = err.message;
         document.getElementById("loadErrorBanner").classList.remove("hidden");
+        if (state.needsSignin) {
+          openSignInModal(err.message);
+        }
         showToast(err.message, "error");
       } finally {
-        authBtn.disabled = false;
-        bannerBtn.disabled = false;
+        if (authBtn) authBtn.disabled = false;
+        if (bannerBtn) bannerBtn.disabled = false;
+        if (modalBtn) {
+          modalBtn.disabled = false;
+          modalBtn.textContent = "Sign in with Google";
+        }
+        if (modalSwitchBtn) modalSwitchBtn.disabled = false;
+        syncOperationButtonsState();
       }
     }
 
@@ -4103,7 +4284,7 @@
       }
       const printBtn = document.getElementById("reportPrintBtn");
       if (printBtn) {
-        printBtn.disabled = !(state.reportGrid && state.reportGrid.has_tab && !state.reportGrid.empty);
+        printBtn.disabled = !(state.reportGrid && state.reportGrid.has_tab && !state.reportGrid.empty) || isOperationBlocked();
       }
     }
 
@@ -4137,7 +4318,7 @@
       }
       if (curY) ySel.value = curY;
 
-      const enabled = Boolean(state.reportGrid?.has_tab) && !state.reportLoading;
+      const enabled = Boolean(state.reportGrid?.has_tab) && !state.reportLoading && !isOperationBlocked();
       mSel.disabled = !enabled;
       ySel.disabled = !enabled;
       if (applyBtn) applyBtn.disabled = !enabled;
@@ -4681,6 +4862,7 @@
     }
 
     async function loadReportGrid(showToastOnDone = false) {
+      if (requireAuthIfBlocked()) return;
       if (state.reportLoading) return;
       state.reportLoading = true;
       const btn = document.getElementById("reportReloadBtn");
@@ -4719,14 +4901,16 @@
       } finally {
         state.reportLoading = false;
         if (btn) {
-          btn.disabled = false;
           btn.textContent = "↻ Reload";
+          btn.disabled = isOperationBlocked();
         }
         updateReportFilterControls(state.reportGrid?.filter || null);
+        syncOperationButtonsState();
       }
     }
 
     async function applyReportFilter() {
+      if (requireAuthIfBlocked()) return;
       if (state.reportLoading) return;
       const mSel = document.getElementById("reportFilterMonth");
       const ySel = document.getElementById("reportFilterYear");
@@ -4769,12 +4953,14 @@
       } finally {
         state.reportLoading = false;
         if (applyBtn) applyBtn.textContent = "Apply";
-        if (reloadBtn) reloadBtn.disabled = false;
+        if (reloadBtn) reloadBtn.disabled = isOperationBlocked();
         updateReportFilterControls(state.reportGrid?.filter || null);
+        syncOperationButtonsState();
       }
     }
 
     async function printReportSheet() {
+      if (requireAuthIfBlocked()) return;
       if (state.activeTab !== "report") switchTab("report", true);
       if (!state.reportGrid && state.spreadsheet?.id) {
         await loadReportGrid(false);
@@ -4797,15 +4983,16 @@
       const perfOpen = document.getElementById("perfMonthModalBackdrop").classList.contains("open");
       const delOpen = document.getElementById("deleteModalBackdrop").classList.contains("open");
       const setupOpen = document.getElementById("setupModalBackdrop").classList.contains("open");
-      const anyOpen = taskOpen || wlOpen || compOpen || perfOpen || delOpen || setupOpen;
+      const signInOpen = document.getElementById("signInModalBackdrop").classList.contains("open");
+      const anyOpen = taskOpen || wlOpen || compOpen || perfOpen || delOpen || setupOpen || signInOpen;
 
       if (e.key === "Escape" && anyOpen) {
-        closeModal("taskModalBackdrop");
-        closeModal("wlModalBackdrop");
-        closeModal("completeModalBackdrop");
-        closeModal("perfMonthModalBackdrop");
-        closeModal("deleteModalBackdrop");
-        closeModal("setupModalBackdrop");
+        if (taskOpen) closeModal("taskModalBackdrop");
+        if (wlOpen) closeModal("wlModalBackdrop");
+        if (compOpen) closeModal("completeModalBackdrop");
+        if (perfOpen) closeModal("perfMonthModalBackdrop");
+        if (delOpen) closeModal("deleteModalBackdrop");
+        if (setupOpen) closeModal("setupModalBackdrop");
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
