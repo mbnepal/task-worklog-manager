@@ -582,6 +582,7 @@ class TaskWorklogTests(unittest.TestCase):
             self.assertFalse(rep["empty"])
             # Rows 1..8 minus hidden row 2 -> 7 visible rows
             self.assertEqual(len(rep["rows"]), 7)
+            self.assertEqual(rep["row_numbers"], [1, 3, 4, 5, 6, 7, 8])
             flat_texts = [c["v"] for row in rep["rows"] for c in row if c["v"]]
             self.assertNotIn("Hidden Helper", flat_texts)
             self.assertEqual(rep["merges"], [{"r": 0, "c": 0, "rs": 1, "cs": 4}])

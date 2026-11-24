@@ -987,6 +987,12 @@
     .report-web-table tr:hover td {
       background: #f8fafc;
     }
+    .report-web-table.below-table td {
+      border: 1px solid #e2e8f0;
+      padding: 7px 9px;
+      font-size: 12px;
+      vertical-align: middle;
+    }
     @media print {
       * {
         -webkit-print-color-adjust: exact !important;
@@ -4167,10 +4173,20 @@
       const month = String(g?.filter?.month || "").trim();
       const year = String(g?.filter?.year || "").trim();
       const sections = [];
+      const belowRowIndices = [];
+      const rowNums = Array.isArray(g?.row_numbers) ? g.row_numbers : null;
       let current = null;
 
       for (let r = headerEndIdx; r < rows.length; r++) {
+        const sheetRowNum = rowNums && rowNums[r] != null ? Number(rowNums[r]) : (r + 1);
         const vals = rowTexts(r);
+
+        // From Row 45 and below: does NOT fall under Plan for Coming Month; keep for tabular section below
+        if (sheetRowNum >= 45) {
+          belowRowIndices.push(r);
+          continue;
+        }
+
         if (vals.every(v => !v) || _isHelperNumericIndexRow(vals)) continue;
         const c0 = (vals[0] || "").trim();
         const c0Lower = c0.toLowerCase();
@@ -4234,12 +4250,134 @@
         year,
         hasError,
         sections: normalizedSections,
+        belowRowIndices,
         fallbackRows: normalizedSections.length
           ? []
           : rows
               .map(r => r.map(c => String(c?.v ?? "").trim()))
               .filter(vals => vals.some(Boolean) && !_isHelperNumericIndexRow(vals)),
       };
+    }
+
+    function _buildBelowWebCellStyle(cell) {
+      if (!cell) return "";
+      const parts = [];
+      const bg = _sanitizeReportColor(cell.bg);
+      if (bg) parts.push(`background-color:${bg}`);
+      const fg = _sanitizeReportColor(cell.fg);
+      if (fg) parts.push(`color:${fg}`);
+      if (cell.b) parts.push("font-weight:700");
+      if (cell.i) parts.push("font-style:italic");
+      const hMap = { l: "left", c: "center", r: "right", left: "left", center: "center", right: "right" };
+      const ha = hMap[cell.ha];
+      if (ha) parts.push(`text-align:${ha}`);
+      return parts.join(";");
+    }
+
+    function _buildBelowRowsTableHtml(g, belowRowIndices) {
+      if (!Array.isArray(belowRowIndices) || !belowRowIndices.length) return "";
+      const rows = Array.isArray(g?.rows) ? g.rows : [];
+      const rawMerges = Array.isArray(g?.merges) ? g.merges : [];
+
+      const mergedRowSet = new Set();
+      rawMerges.forEach(m => {
+        if (Number(m.rs) > 1) {
+          for (let rr = Number(m.r); rr < Number(m.r) + Number(m.rs); rr++) mergedRowSet.add(rr);
+        }
+      });
+
+      const keptIndices = [];
+      belowRowIndices.forEach(r => {
+        const vals = (rows[r] || []).map(c => String(c?.v ?? "").trim());
+        if (_isHelperNumericIndexRow(vals)) return;
+        const hasText = vals.some(Boolean);
+        const hasStyledCell = (rows[r] || []).some(c => c && (c.bg || c.bt || c.bb || c.bl || c.br));
+        if (hasText || hasStyledCell || mergedRowSet.has(r)) keptIndices.push(r);
+      });
+      while (keptIndices.length) {
+        const lastIdx = keptIndices[keptIndices.length - 1];
+        const hasText = (rows[lastIdx] || []).some(c => String(c?.v ?? "").trim() !== "");
+        if (hasText) break;
+        keptIndices.pop();
+      }
+      if (!keptIndices.length) return "";
+
+      // Optional leading single-cell banner row becomes section card title
+      let cardTitle = "Additional Details & Summary (Row 45+)";
+      const firstRowVals = (rows[keptIndices[0]] || []).map(c => String(c?.v ?? "").trim()).filter(Boolean);
+      const firstHasMultiMerge = rawMerges.some(m => Number(m.r) === keptIndices[0] && Number(m.rs || 1) === 1 && Number(m.cs || 1) >= 4);
+      if (firstRowVals.length === 1 && firstHasMultiMerge && keptIndices.length > 1) {
+        cardTitle = firstRowVals[0];
+        keptIndices.shift();
+      }
+
+      let maxCol = 1;
+      keptIndices.forEach(r => {
+        (rows[r] || []).forEach((c, ci) => {
+          if (c && (String(c.v ?? "").trim() !== "" || c.bg || c.bt || c.bb || c.bl || c.br)) {
+            maxCol = Math.max(maxCol, ci + 1);
+          }
+        });
+      });
+      const subRowMap = new Map(keptIndices.map((gr, sr) => [gr, sr]));
+      rawMerges.forEach(m => {
+        if (subRowMap.has(Number(m.r))) {
+          maxCol = Math.max(maxCol, Number(m.c) + Number(m.cs || 1));
+        }
+      });
+      maxCol = Math.min(maxCol, (rows[0] || []).length || maxCol);
+
+      const mergeMap = new Map();
+      const covered = new Set();
+      rawMerges.forEach(m => {
+        const mr = Number(m.r), mc = Number(m.c), mrs = Number(m.rs || 1), mcs = Number(m.cs || 1);
+        const subRows = [];
+        for (let rr = mr; rr < mr + mrs; rr++) {
+          if (subRowMap.has(rr)) subRows.push(subRowMap.get(rr));
+        }
+        if (!subRows.length || mc >= maxCol) return;
+        const rs = subRows.length;
+        const cs = Math.max(1, Math.min(mcs, maxCol - mc));
+        if (rs <= 1 && cs <= 1) return;
+        const sr0 = subRows[0];
+        mergeMap.set(`${sr0}:${mc}`, { rs, cs });
+        for (let sr = sr0; sr < sr0 + rs; sr++) {
+          for (let cc = mc; cc < mc + cs; cc++) {
+            if (sr !== sr0 || cc !== mc) covered.add(`${sr}:${cc}`);
+          }
+        }
+      });
+
+      const bodyHtml = keptIndices.map((gridIdx, sr) => {
+        let tds = "";
+        for (let c = 0; c < maxCol; c++) {
+          const key = `${sr}:${c}`;
+          if (covered.has(key)) continue;
+          const cell = rows[gridIdx]?.[c] || {};
+          const m = mergeMap.get(key);
+          const spanAttrs = (m && m.rs > 1 ? ` rowspan="${m.rs}"` : "") + (m && m.cs > 1 ? ` colspan="${m.cs}"` : "");
+          const styleStr = _buildBelowWebCellStyle(cell);
+          const styleAttr = styleStr ? ` style="${escapeHtml(styleStr)}"` : "";
+          const txt = String(cell.v ?? "").trim();
+          const valHtml = txt ? escapeHtml(txt) : `<span style="color:#cbd5e1;">&nbsp;</span>`;
+          tds += `<td${spanAttrs}${styleAttr}>${valHtml}</td>`;
+        }
+        return `<tr>${tds}</tr>`;
+      }).join("");
+
+      return `
+        <div class="report-web-section">
+          <div class="report-web-section-hdr">
+            <strong>${escapeHtml(cardTitle)}</strong>
+            <span class="badge badge-blue">${keptIndices.length} row${keptIndices.length === 1 ? "" : "s"}</span>
+          </div>
+          <div class="report-web-table-wrap">
+            <table class="report-web-table below-table">
+              <tbody>${bodyHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
     }
 
     function _renderWebBadgeCell(headerLabel, rawVal) {
@@ -4321,7 +4459,7 @@
               </div>
             </div>
           `;
-        }).join("");
+        }).join("") + _buildBelowRowsTableHtml(g, m.belowRowIndices);
       } else {
         const cleanRows = m.fallbackRows;
         const maxC = cleanRows.reduce((mx, r) => Math.max(mx, r.length), 0);

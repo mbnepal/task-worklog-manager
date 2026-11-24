@@ -975,6 +975,7 @@ def parse_report_grid_data(
         **report_meta,
         "empty": False,
         "rows": rows_out,
+        "row_numbers": [r + 1 for r in vis_rows],
         "merges": out_merges,
         "col_widths": col_widths,
         "row_heights": row_heights,

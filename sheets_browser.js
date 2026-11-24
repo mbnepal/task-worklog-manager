@@ -1041,6 +1041,7 @@
       ...reportMeta,
       empty: false,
       rows: rowsOut,
+      row_numbers: visRows.map(r => r + 1),
       merges: outMerges,
       col_widths: colWidths,
       row_heights: rowHeights,
