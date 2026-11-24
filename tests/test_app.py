@@ -386,6 +386,79 @@ class TaskWorklogTests(unittest.TestCase):
             nov_upd = [it for it in upd["perf"]["items"] if it["row"] == 8][0]
             self.assertEqual(nov_upd["achievement"], "5")
 
+    def test_supervision_mode_supervisor_comments_only(self):
+        with patch.object(twm, "get_sheets_service", return_value=self.svc):
+            boot = twm.apply_setup({
+                "sheet_url": "1SampleSheetId1234567890abcdef",
+                "role_mode": "supervisor",
+            })
+            self.assertEqual(boot["setup"]["role_mode"], "supervisor")
+
+            # Employee mutations & creations are blocked (403) in Supervision mode
+            for fn in (
+                lambda: twm.create_task({"detail": "Blocked"}),
+                lambda: twm.update_task(9, {"detail": "Blocked"}),
+                lambda: twm.delete_task(9),
+                lambda: twm.create_worklog({"task": "Blocked", "project": "X", "time_minutes": "10"}),
+                lambda: twm.update_worklog(10, {"task": "Blocked", "project": "X", "time_minutes": "10"}),
+                lambda: twm.delete_worklog(10),
+                lambda: twm.create_perf_month({"year": "2026", "month": "November", "source_year": "2026", "source_month": "October"}),
+                lambda: twm.update_perf_achievements({"year": "2026", "month": "October", "updates": [{"row": 6, "achievement": "4"}]}),
+            ):
+                with self.assertRaises(twm.ApiError) as err_ctx:
+                    fn()
+                self.assertEqual(err_ctx.exception.status, 403)
+
+            # Empty task row 11 cannot receive supervisor comment (404)
+            with self.assertRaises(twm.ApiError) as empty_ctx:
+                twm.update_task_supervisor_comment(11, {"supervisor_comments": "Test"})
+            self.assertEqual(empty_ctx.exception.status, 404)
+
+            # Stale task snapshot triggers 409
+            with self.assertRaises(twm.ApiError) as stale_ctx:
+                twm.update_task_supervisor_comment(9, {
+                    "supervisor_comments": "Updated comment",
+                    "expected_snapshot": {"detail": "WRONG", "date_of_entry": "11/01/2026"},
+                })
+            self.assertEqual(stale_ctx.exception.status, 409)
+
+            # Valid supervisor comment updates ONLY Tasks Col T
+            self.mem.written_ranges.clear()
+            res_task = twm.update_task_supervisor_comment(9, {
+                "supervisor_comments": "Reviewed & approved",
+                "expected_snapshot": {"detail": "Task One", "date_of_entry": "11/01/2026"},
+            })
+            self.assertEqual(self.mem.written_ranges, ["'Tasks'!T9"])
+            row9 = [t for t in res_task["tasks"] if t["row"] == 9][0]
+            self.assertEqual(row9["supervisor_comments"], "Reviewed & approved")
+            self.assertEqual(row9["detail"], "Task One")
+
+            # Valid Perf Standard supervisor remark updates ONLY Perf Standard Col L
+            self.mem.written_ranges.clear()
+            res_perf = twm.update_perf_supervisor_remarks({
+                "year": "2026",
+                "month": "October",
+                "updates": [{"row": 6, "supervisor_remarks": "Need stricter punctuality", "expected_description": "Late Arrival/ Early Exit"}],
+            })
+            self.assertEqual(self.mem.written_ranges, ["'Perf Standard'!L6"])
+            perf6 = [it for it in res_perf["perf"]["items"] if it["row"] == 6][0]
+            self.assertEqual(perf6["supervisor_remarks"], "Need stricter punctuality")
+            self.assertEqual(perf6["supervisor_score"], "-1")
+            self.assertEqual(perf6["achievement"], "0")
+
+            # Switch back to Employee mode: supervisor-only helpers reject with 403
+            boot_emp = twm.apply_setup({
+                "sheet_url": "1SampleSheetId1234567890abcdef",
+                "role_mode": "employee",
+            })
+            self.assertEqual(boot_emp["setup"]["role_mode"], "employee")
+            with self.assertRaises(twm.ApiError) as sup_only1:
+                twm.update_task_supervisor_comment(9, {"supervisor_comments": "Blocked in emp mode"})
+            self.assertEqual(sup_only1.exception.status, 403)
+            with self.assertRaises(twm.ApiError) as sup_only2:
+                twm.update_perf_supervisor_remarks({"year": "2026", "month": "October", "updates": [{"row": 6, "supervisor_remarks": "Blocked"}]})
+            self.assertEqual(sup_only2.exception.status, 403)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

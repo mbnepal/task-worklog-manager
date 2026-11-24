@@ -101,8 +101,31 @@ def parse_spreadsheet_id(link_or_id: str) -> str:
     raise ApiError("Invalid Google Sheet link or Spreadsheet ID. Paste the full Google Sheets URL or its ID.")
 
 
+def normalize_role_mode(val) -> str:
+    return "supervisor" if str(val or "").strip().lower() == "supervisor" else "employee"
+
+
+def require_employee_mode(cfg: dict, action: str = "modify records"):
+    if normalize_role_mode(cfg.get("role_mode")) == "supervisor":
+        raise ApiError(
+            f"Supervision mode only allows adding Supervisor comments; cannot {action}.",
+            status=403,
+            code="SUPERVISOR_READ_ONLY",
+        )
+
+
+def require_supervisor_mode(cfg: dict, field_label: str = "Supervisor comments"):
+    if normalize_role_mode(cfg.get("role_mode")) != "supervisor":
+        raise ApiError(
+            f"Enable Supervision mode in Setup to edit {field_label}.",
+            status=403,
+            code="SUPERVISOR_ONLY",
+        )
+
+
 def default_config() -> dict:
     return {
+        "role_mode": "employee",
         "spreadsheet_id": "",
         "tasks_tab": DEFAULT_TASKS_TAB,
         "worklog_tab": DEFAULT_WORKLOG_TAB,
@@ -121,6 +144,7 @@ def load_config() -> dict:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     raw = json.load(f)
                 if isinstance(raw, dict):
+                    cfg["role_mode"] = normalize_role_mode(raw.get("role_mode"))
                     cfg["spreadsheet_id"] = (raw.get("spreadsheet_id") or "").strip()
                     cfg["tasks_tab"] = (raw.get("tasks_tab") or DEFAULT_TASKS_TAB).strip()
                     cfg["worklog_tab"] = (raw.get("worklog_tab") or DEFAULT_WORKLOG_TAB).strip()
@@ -659,6 +683,7 @@ def fetch_perf_h_validations(svc, sid: str, perf_entry: dict | None, p_rows: lis
 def build_setup_status(cfg: dict, sheet_url: str = "") -> dict:
     return {
         "mode": "local",
+        "role_mode": normalize_role_mode(cfg.get("role_mode")),
         "spreadsheet_id": cfg.get("spreadsheet_id", ""),
         "url": sheet_url,
         "tasks_tab": cfg.get("tasks_tab", DEFAULT_TASKS_TAB),
@@ -967,8 +992,9 @@ def _active_smap(svc, cfg: dict) -> tuple[str, dict]:
 
 
 def create_task(payload: dict) -> dict:
-    prepared = validate_and_prepare_task(payload)
     cfg = load_config()
+    require_employee_mode(cfg, "add new tasks")
+    prepared = validate_and_prepare_task(payload)
     with sheets_lock:
         svc = get_sheets_service()
         sid, smap = _active_smap(svc, cfg)
@@ -1002,9 +1028,10 @@ def create_task(payload: dict) -> dict:
 
 
 def update_task(row_num: int, payload: dict) -> dict:
+    cfg = load_config()
+    require_employee_mode(cfg, "edit employee task fields")
     prepared = validate_and_prepare_task(payload)
     expected = payload.get("expected_snapshot")
-    cfg = load_config()
     with sheets_lock:
         svc = get_sheets_service()
         sid, smap = _active_smap(svc, cfg)
@@ -1035,8 +1062,53 @@ def update_task(row_num: int, payload: dict) -> dict:
         return data
 
 
+def update_task_supervisor_comment(row_num: int, payload: dict) -> dict:
+    cfg = load_config()
+    require_supervisor_mode(cfg, "Supervisor Comments (Col T)")
+    supervisor_comments = (payload.get("supervisor_comments") or "").strip()
+    expected = payload.get("expected_snapshot")
+    with sheets_lock:
+        svc = get_sheets_service()
+        sid, smap = _active_smap(svc, cfg)
+        t_title = smap["tasks"]["title"]
+        t_max = smap["tasks"]["rowCount"]
+        if row_num < TASKS_START_ROW or row_num > t_max:
+            raise ApiError(f"Task row must be between {TASKS_START_ROW} and {t_max}.")
+
+        qt = quote_sheet(t_title)
+        curr_vals = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sid, range=f"{qt}!A{row_num}:Z{row_num}", valueRenderOption="FORMATTED_VALUE")
+            .execute()
+            .get("values", [])
+        )
+        curr_row = curr_vals[0] if curr_vals else []
+        if not task_has_user_content(curr_row):
+            raise ApiError(f"Task row {row_num} is empty.", status=404)
+        curr_rec = build_task_record(row_num, curr_row)
+        if not task_snapshot_matches(curr_rec, expected):
+            raise ApiError(
+                "This task row changed in Google Sheets since you loaded it. Refreshing latest data.",
+                status=409,
+                code="STALE_ROW",
+            )
+
+        # Strictly write ONLY Column T (Supervisor Comments)
+        svc.spreadsheets().values().update(
+            spreadsheetId=sid,
+            range=f"{qt}!T{row_num}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [[supervisor_comments]]},
+        ).execute()
+        data = fetch_bootstrap_data(svc, cfg=cfg)
+        data["affected_row"] = row_num
+        return data
+
+
 def delete_task(row_num: int, expected: dict | None = None) -> dict:
     cfg = load_config()
+    require_employee_mode(cfg, "delete tasks")
     with sheets_lock:
         svc = get_sheets_service()
         sid, smap = _active_smap(svc, cfg)
@@ -1280,8 +1352,9 @@ def sync_worklog_md(action: str, new_entry: dict | None = None, old_entry: dict 
 
 
 def create_worklog(payload: dict) -> dict:
-    prepared = validate_and_prepare_worklog(payload)
     cfg = load_config()
+    require_employee_mode(cfg, "add work log entries")
+    prepared = validate_and_prepare_worklog(payload)
     sync_md = payload.get("sync_md", bool(cfg.get("sync_md_default", False)))
     with sheets_lock:
         svc = get_sheets_service()
@@ -1334,9 +1407,10 @@ def create_worklog(payload: dict) -> dict:
 
 
 def update_worklog(row_num: int, payload: dict) -> dict:
+    cfg = load_config()
+    require_employee_mode(cfg, "edit work log entries")
     prepared = validate_and_prepare_worklog(payload)
     expected = payload.get("expected_snapshot")
-    cfg = load_config()
     sync_md = payload.get("sync_md", bool(cfg.get("sync_md_default", False)))
     with sheets_lock:
         svc = get_sheets_service()
@@ -1379,6 +1453,7 @@ def update_worklog(row_num: int, payload: dict) -> dict:
 
 def delete_worklog(row_num: int, expected: dict | None = None, sync_md: bool | None = None) -> dict:
     cfg = load_config()
+    require_employee_mode(cfg, "delete work log entries")
     if sync_md is None:
         sync_md = bool(cfg.get("sync_md_default", False))
     with sheets_lock:
@@ -1440,6 +1515,8 @@ def delete_worklog(row_num: int, expected: dict | None = None, sync_md: bool | N
 
 
 def create_perf_month(payload: dict) -> dict:
+    cfg = load_config()
+    require_employee_mode(cfg, "create a new Perf Standard month")
     target_mk = normalize_perf_month(payload.get("year"), payload.get("month"))
     if not target_mk:
         raise ApiError("Valid 4-digit Year and Month name are required.")
@@ -1447,7 +1524,6 @@ def create_perf_month(payload: dict) -> dict:
     if not src_mk:
         raise ApiError("Source Year and Month to copy from are required.")
 
-    cfg = load_config()
     with sheets_lock:
         svc = get_sheets_service()
         sid, smap = _active_smap(svc, cfg)
@@ -1554,51 +1630,85 @@ def create_perf_month(payload: dict) -> dict:
         return data
 
 
-def update_perf_achievements(payload: dict) -> dict:
-    target_mk = normalize_perf_month(payload.get("year"), payload.get("month"))
+def _load_perf_write_context(svc, cfg: dict, year, month) -> tuple[str, str, dict, dict, dict[int, dict]]:
+    target_mk = normalize_perf_month(year, month)
     if not target_mk:
         raise ApiError("Valid Year and Month are required.")
+    sid, smap = _active_smap(svc, cfg)
+    perf_entry = smap.get("perf")
+    if not perf_entry:
+        raise ApiError(f"Tab '{cfg.get('perf_tab', DEFAULT_PERF_TAB)}' was not found in this Google Sheet.")
+    qp = quote_sheet(perf_entry["title"])
+    p_max = perf_entry["rowCount"]
+    p_rows = (
+        svc.spreadsheets()
+        .values()
+        .get(spreadsheetId=sid, range=f"{qp}!A1:M{p_max}", valueRenderOption="FORMATTED_VALUE")
+        .execute()
+        .get("values", [])
+    )
+    h_vals = fetch_perf_h_validations(svc, sid, perf_entry, p_rows)
+    perf_state = parse_perf_standard_data(p_rows, [], h_vals, perf_entry)
+    month_obj = next((m for m in perf_state["months"] if m["key"] == target_mk["key"]), None)
+    if not month_obj:
+        raise ApiError(f"Perf Standard month {target_mk['label']} was not found.")
+    by_row = {it["row"]: it for it in perf_state["items"] if it["month_key"] == month_obj["key"]}
+    return sid, qp, perf_state, month_obj, by_row
+
+
+def _resolve_perf_update_row(by_row: dict[int, dict], month_obj: dict, update_item: dict) -> tuple[int, dict]:
+    rn = int(update_item.get("row", 0))
+    rec = by_row.get(rn)
+    if not rec:
+        raise ApiError(f"Row {rn} does not belong to {month_obj['label']}. Refreshing latest data.", status=409, code="STALE_ROW")
+    if "expected_description" in update_item and rec["description"] != str(update_item["expected_description"] or "").strip():
+        raise ApiError(f"Perf Standard row {rn} changed externally. Refreshing latest data.", status=409, code="STALE_ROW")
+    return rn, rec
+
+
+def update_perf_achievements(payload: dict) -> dict:
+    cfg = load_config()
+    require_employee_mode(cfg, "edit Achievement values (Col H)")
     updates_list = payload.get("updates")
     if not isinstance(updates_list, list) or not updates_list:
         raise ApiError("At least one Achievement update is required.")
 
-    cfg = load_config()
     with sheets_lock:
         svc = get_sheets_service()
-        sid, smap = _active_smap(svc, cfg)
-        perf_entry = smap.get("perf")
-        if not perf_entry:
-            raise ApiError(f"Tab '{cfg.get('perf_tab', DEFAULT_PERF_TAB)}' was not found in this Google Sheet.")
-        qp = quote_sheet(perf_entry["title"])
-        p_max = perf_entry["rowCount"]
-        p_rows = (
-            svc.spreadsheets()
-            .values()
-            .get(spreadsheetId=sid, range=f"{qp}!A1:M{p_max}", valueRenderOption="FORMATTED_VALUE")
-            .execute()
-            .get("values", [])
-        )
-        h_vals = fetch_perf_h_validations(svc, sid, perf_entry, p_rows)
-        perf_state = parse_perf_standard_data(p_rows, [], h_vals, perf_entry)
-
-        month_obj = next((m for m in perf_state["months"] if m["key"] == target_mk["key"]), None)
-        if not month_obj:
-            raise ApiError(f"Perf Standard month {target_mk['label']} was not found.")
+        sid, qp, perf_state, month_obj, by_row = _load_perf_write_context(svc, cfg, payload.get("year"), payload.get("month"))
         if month_obj["key"] != perf_state["latest_month_key"]:
             latest_label = perf_state["months"][0]["label"] if perf_state["months"] else perf_state["latest_month_key"]
             raise ApiError(f"Past months are view-only. Only the latest month ({latest_label}) can edit Achievement.", status=403)
 
-        by_row = {it["row"]: it for it in perf_state["items"] if it["month_key"] == month_obj["key"]}
         data_updates = []
         for u in updates_list:
-            rn = int(u.get("row", 0))
-            rec = by_row.get(rn)
-            if not rec:
-                raise ApiError(f"Row {rn} does not belong to {month_obj['label']}. Refreshing latest data.", status=409, code="STALE_ROW")
-            if "expected_description" in u and rec["description"] != str(u["expected_description"] or "").strip():
-                raise ApiError(f"Perf Standard row {rn} changed externally. Refreshing latest data.", status=409, code="STALE_ROW")
+            rn, rec = _resolve_perf_update_row(by_row, month_obj, u)
             cleaned = validate_perf_achievement_val(u.get("achievement"), rec["h_options"], rec["description"])
             data_updates.append({"range": f"{qp}!H{rn}", "values": [[cleaned]]})
+
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=sid,
+            body={"valueInputOption": "USER_ENTERED", "data": data_updates},
+        ).execute()
+        return fetch_bootstrap_data(svc, cfg=cfg)
+
+
+def update_perf_supervisor_remarks(payload: dict) -> dict:
+    cfg = load_config()
+    require_supervisor_mode(cfg, "Supervisor Remarks (Col L)")
+    updates_list = payload.get("updates")
+    if not isinstance(updates_list, list) or not updates_list:
+        raise ApiError("At least one Supervisor Remark update is required.")
+
+    with sheets_lock:
+        svc = get_sheets_service()
+        sid, qp, _perf_state, month_obj, by_row = _load_perf_write_context(svc, cfg, payload.get("year"), payload.get("month"))
+        data_updates = []
+        for u in updates_list:
+            rn, _rec = _resolve_perf_update_row(by_row, month_obj, u)
+            remark_val = str(u.get("supervisor_remarks") or "").strip()
+            # Strictly write ONLY Column L (Supervisor Remarks)
+            data_updates.append({"range": f"{qp}!L{rn}", "values": [[remark_val]]})
 
         svc.spreadsheets().values().batchUpdate(
             spreadsheetId=sid,
@@ -1662,6 +1772,10 @@ def apply_setup(payload: dict) -> dict:
         svc = get_sheets_service()
         info, _ = _probe_sheet_setup(svc, payload)
         cfg = load_config()
+        if "role_mode" in payload:
+            cfg["role_mode"] = normalize_role_mode(payload.get("role_mode"))
+        else:
+            cfg["role_mode"] = normalize_role_mode(cfg.get("role_mode"))
         cfg["spreadsheet_id"] = info["spreadsheet_id"]
         cfg["tasks_tab"] = info["tasks_tab"]
         cfg["worklog_tab"] = info["worklog_tab"]
@@ -1672,6 +1786,7 @@ def apply_setup(payload: dict) -> dict:
         upsert_saved_sheet(
             cfg,
             {
+                "role_mode": cfg["role_mode"],
                 "spreadsheet_id": info["spreadsheet_id"],
                 "title": info["title"],
                 "employee_name": info["employee_name"],
@@ -1817,14 +1932,19 @@ class TaskWorklogHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         try:
             payload = self._read_json_body()
+            m_task_sup = re.fullmatch(r"/api/tasks/(\d+)/supervisor-comment", parsed.path)
             m_task = re.fullmatch(r"/api/tasks/(\d+)", parsed.path)
             m_wl = re.fullmatch(r"/api/worklogs/(\d+)", parsed.path)
-            if m_task:
+            if m_task_sup:
+                self._send_json(update_task_supervisor_comment(int(m_task_sup.group(1)), payload))
+            elif m_task:
                 self._send_json(update_task(int(m_task.group(1)), payload))
             elif m_wl:
                 self._send_json(update_worklog(int(m_wl.group(1)), payload))
             elif parsed.path == "/api/perf/achievements":
                 self._send_json(update_perf_achievements(payload))
+            elif parsed.path == "/api/perf/supervisor-remarks":
+                self._send_json(update_perf_supervisor_remarks(payload))
             else:
                 self.send_error(404)
         except Exception as exc:

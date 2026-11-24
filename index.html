@@ -678,6 +678,51 @@
       background: #fffbeb;
     }
 
+    .role-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .role-btn {
+      justify-content: center;
+      padding: 10px 12px;
+      font-weight: 700;
+      border-width: 1.5px;
+    }
+    .role-btn.active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+      color: var(--primary-dark);
+    }
+    .role-btn.sup-active {
+      border-color: #4f46e5;
+      background: #eef2ff;
+      color: #3730a3;
+    }
+    .perf-sup-input {
+      width: 100%;
+      min-width: 180px;
+      min-height: 52px;
+      padding: 6px 8px;
+      border: 1.5px solid #a5b4fc;
+      border-radius: 7px;
+      font-size: 12px;
+      font-family: inherit;
+      background: #eef2ff;
+      color: var(--text);
+      resize: vertical;
+      outline: none;
+    }
+    .perf-sup-input:focus {
+      border-color: #4f46e5;
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+    }
+    .perf-sup-input.dirty {
+      border-color: #d97706;
+      background: #fffbeb;
+    }
+
     .hidden { display: none !important; }
     .highlight-req { border-color: #d97706 !important; background: #fffbeb !important; }
   </style>
@@ -697,6 +742,9 @@
         </div>
       </div>
       <div class="topbar-right">
+        <button type="button" id="roleModeBadge" class="health-pill hidden" onclick="openSetupModal()" title="Supervision mode active — click to switch mode in Setup" style="background:#eef2ff; color:#3730a3; border-color:#c7d2fe;">
+          🛡 Supervision Mode
+        </button>
         <div id="healthPill" class="health-pill ok" title="Click to filter tasks needing attention" onclick="jumpToAttention()">
           Checking sheet...
         </div>
@@ -780,7 +828,7 @@
         </div>
         <div class="table-footer">
           <span id="tasksFooterInfo">Loading...</span>
-          <span>Read-only formulas preserved automatically: A (ID), N (Status), P (Delay Days), V/W (Checks)</span>
+          <span id="tasksFooterRuleHint">Read-only formulas preserved automatically: A (ID), N (Status), P (Delay Days), V/W (Checks)</span>
         </div>
       </div>
     </section>
@@ -788,6 +836,8 @@
     <!-- WORK LOG VIEW -->
     <section id="worklogsView" class="hidden">
       <div class="kpi-grid" id="worklogKpis"></div>
+
+      <div id="worklogModeBanner" class="check-banner warn hidden" style="margin-bottom:14px;"></div>
 
       <div class="toolbar">
         <input class="input search-box" id="wlSearch" type="text" placeholder="Search task description, project, comments..." />
@@ -835,7 +885,7 @@
         </div>
         <div class="table-footer">
           <span id="worklogFooterInfo">Loading...</span>
-          <span>Syncs Google Sheet ('Work log') &amp; optional local Work_Log_History.md</span>
+          <span id="worklogFooterRuleHint">Syncs Google Sheet ('Work log') &amp; optional local Work_Log_History.md</span>
         </div>
       </div>
     </section>
@@ -848,7 +898,7 @@
         <span id="perfModeBannerText"></span>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button type="button" class="btn btn-sm hidden" id="discardPerfAchBtn" onclick="discardPerfEdits()">Discard Edits</button>
-          <button type="button" class="btn btn-sm btn-success hidden" id="savePerfAchBtn" onclick="savePerfAchievements()">Save Achievements</button>
+          <button type="button" class="btn btn-sm btn-success hidden" id="savePerfAchBtn" onclick="savePerfAction()">Save Achievements</button>
         </div>
       </div>
 
@@ -856,7 +906,7 @@
         <select id="perfMonthSelect" onchange="onPerfMonthChange()" style="min-width:220px; font-weight:700;"></select>
         <input class="input search-box" id="perfSearch" type="text" placeholder="Search criteria, description, source, remarks..." />
         <button type="button" class="btn btn-primary" id="newPerfMonthBtn" onclick="openNewPerfMonthModal()">+ New Month</button>
-        <button type="button" class="btn btn-success hidden" id="toolbarSavePerfBtn" onclick="savePerfAchievements()">✓ Save Achievements</button>
+        <button type="button" class="btn btn-success hidden" id="toolbarSavePerfBtn" onclick="savePerfAction()">✓ Save Achievements</button>
       </div>
 
       <div class="table-card">
@@ -879,7 +929,7 @@
         </div>
         <div class="table-footer">
           <span id="perfFooterInfo">Loading...</span>
-          <span>Only Achievement (Col H) on the current/new month is editable; past months are view-only and formulas/weights/supervisor scores stay locked.</span>
+          <span id="perfFooterRuleHint">Only Achievement (Col H) on the current/new month is editable; past months are view-only and formulas/weights/supervisor scores stay locked.</span>
         </div>
       </div>
     </section>
@@ -934,7 +984,7 @@
 
           <div class="form-section-title">
             3. Schedule &amp; Effort (Hours)
-            <button type="button" class="chip-btn" style="float:right; margin-top:-3px;" onclick="quickFillTaskComplete()">✓ Quick-Fill Complete Today</button>
+            <button type="button" id="taskQuickFillBtn" class="chip-btn" style="float:right; margin-top:-3px;" onclick="quickFillTaskComplete()">✓ Quick-Fill Complete Today</button>
           </div>
           <div class="form-grid-3">
             <div class="field">
@@ -997,7 +1047,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <label class="checkbox-row">
+          <label class="checkbox-row" id="tf_allow_partial_wrap">
             <input type="checkbox" id="tf_allow_partial" />
             Allow saving partial draft (bypass strict Tasks V9 check)
           </label>
@@ -1236,7 +1286,21 @@
       <form id="setupForm" onsubmit="submitSetupForm(event)" style="display:flex; flex-direction:column; min-height:0; flex:1;">
         <div class="modal-body">
           <div class="cell-sub" style="margin-top:-4px;">
-            Paste your Google Sheet link and click <strong>Test Connection</strong> to sign in with your Google account.
+            Paste the Google Sheet link, choose your mode, and click <strong>Test Connection</strong> to sign in with Google.
+          </div>
+
+          <div class="field">
+            <label>Access Mode</label>
+            <input type="hidden" id="sf_role_mode" value="employee" />
+            <div class="role-switch" role="group" aria-label="Access Mode">
+              <button type="button" class="btn role-btn active" id="sf_role_employee_btn" onclick="selectSetupRole('employee')">
+                👤 Employee Mode
+              </button>
+              <button type="button" class="btn role-btn" id="sf_role_supervisor_btn" onclick="selectSetupRole('supervisor')">
+                🛡 Supervision (Supervisor)
+              </button>
+            </div>
+            <div id="sf_role_hint" class="check-banner warn hidden" style="margin-top:4px;"></div>
           </div>
 
           <div class="field">
@@ -1325,7 +1389,9 @@
       perf: { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" },
       perfSelectedKey: "",
       perfDrafts: {},
+      perfSupDrafts: {},
       perfNewDrafts: [],
+      setupRoleDirty: false,
       taskStatusFilter: "all",
       wlStatusFilter: "all",
       editingTaskRow: null,
@@ -1464,15 +1530,21 @@
       }
     }
 
+    function isSupervisorMode() {
+      return (state.setup?.role_mode || "employee") === "supervisor";
+    }
+
     function applyBootstrap(data) {
       state.spreadsheet = data.spreadsheet || {};
-      state.setup = data.setup || { sync_md_default: false, saved_sheets: [] };
+      state.setup = data.setup || { role_mode: "employee", sync_md_default: false, saved_sheets: [] };
       state.employee = data.employee || {};
       state.dropdowns = data.dropdowns || {};
       state.tasks = data.tasks || [];
       state.worklogs = data.worklogs || [];
       state.perf = data.perf || { has_tab: false, months: [], items: [], years: [], month_names: [], latest_month_key: "" };
       state.perfDrafts = {};
+      state.perfSupDrafts = {};
+      document.getElementById("roleModeBadge").classList.toggle("hidden", !isSupervisorMode());
       if (data.created_month_key) {
         state.perfSelectedKey = data.created_month_key;
       } else {
@@ -1548,6 +1620,7 @@
 
       hydrateFilterSelects();
       hydrateModalDropdowns();
+      switchTab(state.activeTab);
       renderTasks();
       renderWorklogs();
       renderPerfStandard();
@@ -1592,8 +1665,12 @@
         pSel.innerHTML = `<option value="">No months available</option>`;
         pSel.value = "";
       } else {
+        const isSup = isSupervisorMode();
         pSel.innerHTML = pMonths
-          .map(m => `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)}${m.is_latest ? " (Latest • Edit Achievement)" : " (View Only)"}</option>`)
+          .map(m => {
+            const tag = isSup ? " (Sup Remarks Editable)" : (m.is_latest ? " (Latest • Edit Achievement)" : " (View Only)");
+            return `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)}${tag}</option>`;
+          })
           .join("");
         if (!state.perfSelectedKey || !pMonths.some(m => m.key === state.perfSelectedKey)) {
           state.perfSelectedKey = state.perf.latest_month_key || pMonths[0].key;
@@ -1625,11 +1702,17 @@
       document.getElementById("tasksView").classList.toggle("hidden", tab !== "tasks");
       document.getElementById("worklogsView").classList.toggle("hidden", tab !== "worklogs");
       document.getElementById("perfView").classList.toggle("hidden", tab !== "perf");
-      document.getElementById("primaryNewBtn").textContent =
+      const primaryBtn = document.getElementById("primaryNewBtn");
+      primaryBtn.classList.toggle("hidden", isSupervisorMode());
+      primaryBtn.textContent =
         tab === "tasks" ? "+ New Task" : tab === "worklogs" ? "+ New Work Log" : "+ New Month";
     }
 
     function openPrimaryNew() {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode only allows adding Supervisor comments.", "error");
+        return;
+      }
       if (state.activeTab === "tasks") openTaskModal();
       else if (state.activeTab === "worklogs") openWorklogModal();
       else openNewPerfMonthModal();
@@ -1712,6 +1795,7 @@
         return b.row - a.row;
       });
 
+      const isSup = isSupervisorMode();
       const tbody = document.getElementById("tasksTbody");
       if (!filtered.length) {
         tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No tasks match the current filters.</td></tr>`;
@@ -1724,6 +1808,12 @@
           const schedBadge = t.status_of_task === "Behind Schedule" ? "badge-red" : "badge-green";
           const empOk = isCheckPass(t.check_employee);
           const supOk = isCheckPass(t.check_supervisor);
+          const actionsHtml = isSup
+            ? `<button class="btn btn-xs btn-primary" onclick="openTaskModal(${t.row})" title="Add or update Supervisor Comments (Col T)">${t.supervisor_comments ? "💬 Edit Comment" : "💬 Add Comment"}</button>`
+            : `<button class="btn btn-xs" onclick="openTaskModal(${t.row})">Edit</button>
+               ${!isDone ? `<button class="btn btn-xs btn-success" onclick="openCompleteTaskModal(${t.row})" title="Complete &amp; edit date/time">Complete</button>` : ""}
+               <button class="btn btn-xs" onclick="duplicateTask(${t.row})" title="Duplicate as new task">Copy</button>
+               <button class="btn btn-xs btn-danger" onclick="promptDeleteTask(${t.row})">Delete</button>`;
 
           return `
             <tr>
@@ -1770,10 +1860,7 @@
               </td>
               <td>
                 <div class="actions-col">
-                  <button class="btn btn-xs" onclick="openTaskModal(${t.row})">Edit</button>
-                  ${!isDone ? `<button class="btn btn-xs btn-success" onclick="openCompleteTaskModal(${t.row})" title="Complete &amp; edit date/time">Complete</button>` : ""}
-                  <button class="btn btn-xs" onclick="duplicateTask(${t.row})" title="Duplicate as new task">Copy</button>
-                  <button class="btn btn-xs btn-danger" onclick="promptDeleteTask(${t.row})">Delete</button>
+                  ${actionsHtml}
                 </div>
               </td>
             </tr>
@@ -1781,6 +1868,9 @@
         }).join("");
       }
       document.getElementById("tasksFooterInfo").textContent = `Showing ${filtered.length} of ${all.length} tasks`;
+      document.getElementById("tasksFooterRuleHint").textContent = isSup
+        ? "Supervision mode: Employee fields locked — only Supervisor Comments (Col T) can be added or edited"
+        : "Read-only formulas preserved automatically: A (ID), N (Status), P (Delay Days), V/W (Checks)";
     }
 
     // --- WORK LOGS RENDER ---
@@ -1845,6 +1935,15 @@
 
       const filteredMins = filtered.reduce((acc, w) => acc + (parseFloat(w.time_minutes) || 0), 0);
 
+      const isSup = isSupervisorMode();
+      const wlBanner = document.getElementById("worklogModeBanner");
+      if (isSup) {
+        wlBanner.textContent = "Supervision Mode (View Only): Work Log contains only employee entries and has no supervisor comment fields.";
+        wlBanner.classList.remove("hidden");
+      } else {
+        wlBanner.classList.add("hidden");
+      }
+
       const tbody = document.getElementById("worklogsTbody");
       if (!filtered.length) {
         tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No work log entries match the current filters.</td></tr>`;
@@ -1852,6 +1951,12 @@
         tbody.innerHTML = filtered.map(w => {
           const isDone = w.status === "Complete";
           const nextStatus = isDone ? "On-going" : "Complete";
+          const wlActions = isSup
+            ? `<span class="cell-sub">View only</span>`
+            : `<button class="btn btn-xs" onclick="openWorklogModal(${w.row})">Edit</button>
+               <button class="btn btn-xs ${isDone ? "" : "btn-success"}" onclick="${isDone ? `quickToggleWorklogStatus(${w.row}, 'On-going')` : `openCompleteWorklogModal(${w.row})`}" title="${isDone ? "Switch to On-going" : "Complete &amp; edit date/time"}">${isDone ? "Reopen" : "Complete"}</button>
+               <button class="btn btn-xs" onclick="duplicateWorklog(${w.row})" title="Duplicate entry">Copy</button>
+               <button class="btn btn-xs btn-danger" onclick="promptDeleteWorklog(${w.row})">Delete</button>`;
           return `
             <tr>
               <td class="mono">
@@ -1870,10 +1975,7 @@
               </td>
               <td>
                 <div class="actions-col">
-                  <button class="btn btn-xs" onclick="openWorklogModal(${w.row})">Edit</button>
-                  <button class="btn btn-xs ${isDone ? "" : "btn-success"}" onclick="${isDone ? `quickToggleWorklogStatus(${w.row}, 'On-going')` : `openCompleteWorklogModal(${w.row})`}" title="${isDone ? "Switch to On-going" : "Complete &amp; edit date/time"}">${isDone ? "Reopen" : "Complete"}</button>
-                  <button class="btn btn-xs" onclick="duplicateWorklog(${w.row})" title="Duplicate entry">Copy</button>
-                  <button class="btn btn-xs btn-danger" onclick="promptDeleteWorklog(${w.row})">Delete</button>
+                  ${wlActions}
                 </div>
               </td>
             </tr>
@@ -1882,13 +1984,17 @@
       }
       document.getElementById("worklogFooterInfo").textContent =
         `Showing ${filtered.length} of ${all.length} entries • Filtered time: ${filteredMins} mins (${(filteredMins / 60).toFixed(2)} hrs)`;
+      document.getElementById("worklogFooterRuleHint").textContent = isSup
+        ? "Supervision mode: Work Log is view-only"
+        : "Syncs Google Sheet ('Work log') & optional local Work_Log_History.md";
     }
 
-    // --- PERF STANDARD RENDER & ACHIEVEMENT-ONLY EDITING ---
+    // --- PERF STANDARD RENDER & ACHIEVEMENT-ONLY / SUPERVISION-REMARKS EDITING ---
     function onPerfMonthChange() {
       const nextKey = document.getElementById("perfMonthSelect").value;
       state.perfSelectedKey = nextKey;
       state.perfDrafts = {};
+      state.perfSupDrafts = {};
       renderPerfStandard();
     }
 
@@ -1902,23 +2008,39 @@
       syncPerfDirtyUi(rowNum);
     }
 
+    function onPerfSupervisorRemarkInput(rowNum, val) {
+      const item = (state.perf.items || []).find(it => it.row === rowNum);
+      if (!item) return;
+      const cleaned = String(val ?? "").trim();
+      const orig = String(item.supervisor_remarks ?? "").trim();
+      if (cleaned === orig) delete state.perfSupDrafts[rowNum];
+      else state.perfSupDrafts[rowNum] = String(val ?? "");
+      syncPerfDirtyUi(rowNum);
+    }
+
     function syncPerfDirtyUi(changedRow = null) {
+      const isSup = isSupervisorMode();
       if (changedRow !== null) {
-        const el = document.getElementById(`perf_ach_${changedRow}`);
-        if (el) el.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfDrafts, changedRow));
+        const achEl = document.getElementById(`perf_ach_${changedRow}`);
+        if (achEl) achEl.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfDrafts, changedRow));
+        const supEl = document.getElementById(`perf_sup_rem_${changedRow}`);
+        if (supEl) supEl.classList.toggle("dirty", Object.prototype.hasOwnProperty.call(state.perfSupDrafts, changedRow));
       }
-      const dirtyCount = Object.keys(state.perfDrafts).length;
+      const drafts = isSup ? state.perfSupDrafts : state.perfDrafts;
+      const dirtyCount = Object.keys(drafts).length;
       const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
-      const isEditable = Boolean(monthObj && monthObj.is_latest);
+      const isEditable = isSup ? Boolean(monthObj) : Boolean(monthObj && monthObj.is_latest);
       document.getElementById("savePerfAchBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
       document.getElementById("discardPerfAchBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
       document.getElementById("toolbarSavePerfBtn").classList.toggle("hidden", !(isEditable && dirtyCount > 0));
-      document.getElementById("savePerfAchBtn").textContent = `Save Achievements (${dirtyCount})`;
-      document.getElementById("toolbarSavePerfBtn").textContent = `✓ Save Achievements (${dirtyCount})`;
+      const label = isSup ? "Save Sup Comments" : "Save Achievements";
+      document.getElementById("savePerfAchBtn").textContent = `${label} (${dirtyCount})`;
+      document.getElementById("toolbarSavePerfBtn").textContent = `✓ ${label} (${dirtyCount})`;
     }
 
     function discardPerfEdits() {
       state.perfDrafts = {};
+      state.perfSupDrafts = {};
       renderPerfStandard();
     }
 
@@ -1930,6 +2052,12 @@
       const kpis = document.getElementById("perfKpis");
       const tbody = document.getElementById("perfTbody");
       const newBtn = document.getElementById("newPerfMonthBtn");
+      const isSup = isSupervisorMode();
+
+      newBtn.classList.toggle("hidden", isSup);
+      document.getElementById("perfFooterRuleHint").textContent = isSup
+        ? "Supervision mode: Only Supervisor Remarks / Comments (Col L) are editable; Achievement, Scores, Supervisor Score, and structure stay locked."
+        : "Only Achievement (Col H) on the current/new month is editable; past months are view-only and formulas/weights/supervisor scores stay locked.";
 
       if (!perf.has_tab) {
         kpis.innerHTML = "";
@@ -1943,7 +2071,7 @@
         return;
       }
 
-      newBtn.disabled = months.length === 0;
+      newBtn.disabled = isSup || months.length === 0;
       const monthObj = months.find(m => m.key === state.perfSelectedKey) || months[0] || null;
       if (!monthObj) {
         kpis.innerHTML = "";
@@ -1957,13 +2085,13 @@
       }
 
       state.perfSelectedKey = monthObj.key;
-      const isEditable = Boolean(monthObj.is_latest);
+      const isAchEditable = !isSup && Boolean(monthObj.is_latest);
 
       kpis.innerHTML = `
         <div class="kpi-card">
           <div class="kpi-label">Selected Month</div>
           <div class="kpi-value" style="font-size:20px;">${escapeHtml(monthObj.label)}</div>
-          <div class="kpi-sub">${isEditable ? "Latest month • Achievement editable" : "Past month • View only"}</div>
+          <div class="kpi-sub">${isSup ? "Supervision • Sup Comments editable" : (isAchEditable ? "Latest month • Achievement editable" : "Past month • View only")}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Total Weight</div>
@@ -1982,7 +2110,11 @@
         </div>
       `;
 
-      if (isEditable) {
+      if (isSup) {
+        banner.className = "check-banner ok";
+        bannerText.textContent =
+          `Supervision Mode (${monthObj.label}): Only Supervisor Remarks / Comments (Col L) are editable. Achievement (Col H), Scores, and Supervisor Score remain locked.`;
+      } else if (isAchEditable) {
         banner.className = "check-banner ok";
         bannerText.textContent =
           `Current Month (${monthObj.label}): Only the Achievement column (Col H) is editable. Criteria, Weight, Target, Formulas, and Supervisor fields remain locked.`;
@@ -2009,25 +2141,38 @@
           const curAch = Object.prototype.hasOwnProperty.call(state.perfDrafts, it.row)
             ? state.perfDrafts[it.row]
             : (it.achievement ?? "");
-          const isDirty = Object.prototype.hasOwnProperty.call(state.perfDrafts, it.row);
+          const isAchDirty = Object.prototype.hasOwnProperty.call(state.perfDrafts, it.row);
+          const curSupRem = Object.prototype.hasOwnProperty.call(state.perfSupDrafts, it.row)
+            ? state.perfSupDrafts[it.row]
+            : (it.supervisor_remarks ?? "");
+          const isSupDirty = Object.prototype.hasOwnProperty.call(state.perfSupDrafts, it.row);
           const showCrit = it.criteria || (it.criteria_group && it.criteria_group !== lastShownCrit ? it.criteria_group : "");
           if (it.criteria_group) lastShownCrit = it.criteria_group;
 
           let achCellHtml;
-          if (!isEditable) {
+          if (!isAchEditable) {
             achCellHtml = `<span class="mono" style="font-weight:700;">${escapeHtml(curAch !== "" ? curAch : "—")}</span>`;
           } else if (Array.isArray(it.h_options) && it.h_options.length) {
             const opts = [`<option value=""></option>`].concat(
               it.h_options.map(opt => `<option value="${escapeHtml(opt)}" ${String(curAch) === String(opt) ? "selected" : ""}>${escapeHtml(opt)}</option>`)
             );
-            achCellHtml = `<select id="perf_ach_${it.row}" class="perf-ach-input ${isDirty ? "dirty" : ""}" onchange="onPerfAchievementInput(${it.row}, this.value)">${opts.join("")}</select>`;
+            achCellHtml = `<select id="perf_ach_${it.row}" class="perf-ach-input ${isAchDirty ? "dirty" : ""}" onchange="onPerfAchievementInput(${it.row}, this.value)">${opts.join("")}</select>`;
           } else {
-            achCellHtml = `<input id="perf_ach_${it.row}" type="number" step="any" min="0" class="perf-ach-input ${isDirty ? "dirty" : ""}" value="${escapeHtml(curAch)}" oninput="onPerfAchievementInput(${it.row}, this.value)" />`;
+            achCellHtml = `<input id="perf_ach_${it.row}" type="number" step="any" min="0" class="perf-ach-input ${isAchDirty ? "dirty" : ""}" value="${escapeHtml(curAch)}" oninput="onPerfAchievementInput(${it.row}, this.value)" />`;
           }
 
-          const remParts = [];
-          if (it.remarks) remParts.push(`<div><strong>Self:</strong> ${escapeHtml(it.remarks)}</div>`);
-          if (it.supervisor_remarks) remParts.push(`<div class="cell-sub"><strong>Sup:</strong> ${escapeHtml(it.supervisor_remarks)}</div>`);
+          let remarksCellHtml;
+          if (isSup) {
+            remarksCellHtml = `
+              ${it.remarks ? `<div class="cell-sub" style="margin-bottom:4px;"><strong>Self:</strong> ${escapeHtml(it.remarks)}</div>` : ""}
+              <textarea id="perf_sup_rem_${it.row}" class="perf-sup-input ${isSupDirty ? "dirty" : ""}" rows="2" placeholder="Add supervisor comment (Col L)..." oninput="onPerfSupervisorRemarkInput(${it.row}, this.value)">${escapeHtml(curSupRem)}</textarea>
+            `;
+          } else {
+            const remParts = [];
+            if (it.remarks) remParts.push(`<div><strong>Self:</strong> ${escapeHtml(it.remarks)}</div>`);
+            if (it.supervisor_remarks) remParts.push(`<div class="cell-sub"><strong>Sup:</strong> ${escapeHtml(it.supervisor_remarks)}</div>`);
+            remarksCellHtml = remParts.length ? remParts.join("") : `<span class="cell-sub">—</span>`;
+          }
 
           return `
             <tr>
@@ -2044,7 +2189,7 @@
               <td>${achCellHtml}</td>
               <td class="mono" style="font-weight:700; color:var(--primary);">${escapeHtml(it.score !== "" ? it.score : "—")}</td>
               <td class="mono">${escapeHtml(it.supervisor_score !== "" ? it.supervisor_score : "—")}</td>
-              <td>${remParts.length ? remParts.join("") : `<span class="cell-sub">—</span>`}</td>
+              <td>${remarksCellHtml}</td>
             </tr>
           `;
         }).join("");
@@ -2055,23 +2200,21 @@
       syncPerfDirtyUi();
     }
 
-    async function savePerfAchievements() {
+    async function savePerfAction() {
+      if (isSupervisorMode()) await savePerfSupervisorRemarks();
+      else await savePerfAchievements();
+    }
+
+    async function _submitPerfColumnSave({ draftsMap, url, buildUpdate, emptyMsg, successUnit }) {
       const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
-      if (!monthObj || !monthObj.is_latest) {
-        showToast("Only the latest month allows editing Achievement.", "error");
-        return;
-      }
-      const updates = Object.keys(state.perfDrafts).map(rk => {
+      if (!monthObj) return;
+      const updates = Object.keys(draftsMap).map(rk => {
         const rn = Number(rk);
         const item = (state.perf.items || []).find(it => it.row === rn);
-        return {
-          row: rn,
-          achievement: state.perfDrafts[rn],
-          expected_description: item ? item.description : "",
-        };
+        return buildUpdate(rn, draftsMap[rn], item);
       });
       if (!updates.length) {
-        showToast("No Achievement changes to save.", "info");
+        showToast(emptyMsg, "info");
         return;
       }
       const btn1 = document.getElementById("savePerfAchBtn");
@@ -2081,7 +2224,7 @@
       btn1.textContent = "Saving...";
       btn2.textContent = "Saving...";
       try {
-        const data = await apiFetch("/api/perf/achievements", {
+        const data = await apiFetch(url, {
           method: "PUT",
           body: JSON.stringify({
             year: monthObj.year,
@@ -2090,7 +2233,7 @@
           }),
         });
         applyBootstrap(data);
-        showToast(`Saved ${updates.length} Achievement value(s) for ${monthObj.label}!`, "success");
+        showToast(`Saved ${updates.length} ${successUnit} for ${monthObj.label}!`, "success");
       } catch (err) {
         showToast(err.message, "error");
       } finally {
@@ -2100,7 +2243,48 @@
       }
     }
 
+    async function savePerfAchievements() {
+      const monthObj = (state.perf.months || []).find(m => m.key === state.perfSelectedKey);
+      if (!monthObj || !monthObj.is_latest) {
+        showToast("Only the latest month allows editing Achievement.", "error");
+        return;
+      }
+      await _submitPerfColumnSave({
+        draftsMap: state.perfDrafts,
+        url: "/api/perf/achievements",
+        buildUpdate: (row, val, item) => ({
+          row,
+          achievement: val,
+          expected_description: item ? item.description : "",
+        }),
+        emptyMsg: "No Achievement changes to save.",
+        successUnit: "Achievement value(s)",
+      });
+    }
+
+    async function savePerfSupervisorRemarks() {
+      if (!isSupervisorMode()) {
+        showToast("Enable Supervision mode in Setup to save Supervisor comments.", "error");
+        return;
+      }
+      await _submitPerfColumnSave({
+        draftsMap: state.perfSupDrafts,
+        url: "/api/perf/supervisor-remarks",
+        buildUpdate: (row, val, item) => ({
+          row,
+          supervisor_remarks: val,
+          expected_description: item ? item.description : "",
+        }),
+        emptyMsg: "No Supervisor comment changes to save.",
+        successUnit: "Supervisor comment(s)",
+      });
+    }
+
     function openNewPerfMonthModal() {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode only allows adding Supervisor comments.", "error");
+        return;
+      }
       const perf = state.perf || {};
       if (!perf.has_tab) {
         showToast("Perf Standard tab was not found in this sheet.", "error");
@@ -2243,15 +2427,39 @@
     }
 
     // --- TASK MODAL LOGIC ---
+    const TASK_EMPLOYEE_FIELD_IDS = [
+      "tf_date_of_entry", "tf_detail", "tf_expected_outcome",
+      "tf_other_person", "tf_other_department", "tf_priority", "tf_difficulty",
+      "tf_est_start_date", "tf_expected_deadline", "tf_est_time",
+      "tf_act_start_date", "tf_completion_date", "tf_act_time",
+      "tf_pct_range", "tf_pct_completed", "tf_delay_reason", "tf_remarks", "tf_clarification"
+    ];
+
     function openTaskModal(row = null, markCompleteMode = false) {
+      const isSup = isSupervisorMode();
       hydrateModalDropdowns();
       const t = row ? state.tasks.find(x => x.row === row) : null;
+      if (isSup && !t) {
+        showToast("Supervision mode cannot add new tasks.", "error");
+        return;
+      }
       state.editingTaskRow = t ? t.row : null;
       state.editingTaskSnapshot = t ? { detail: t.detail, date_of_entry: t.date_of_entry } : null;
 
-      document.getElementById("taskModalTitle").textContent = t ? `Edit Task #${t.sn} (Row ${t.row})` : "New Task Entry";
-      document.getElementById("taskSubmitBtn").textContent = t ? "Update Task" : "Add Task";
+      document.getElementById("taskModalTitle").textContent = isSup
+        ? `Supervisor Comment • Task #${t.sn} (Row ${t.row})`
+        : (t ? `Edit Task #${t.sn} (Row ${t.row})` : "New Task Entry");
+      document.getElementById("taskSubmitBtn").textContent = isSup
+        ? "Save Supervisor Comment"
+        : (t ? "Update Task" : "Add Task");
       document.getElementById("tf_allow_partial").checked = false;
+      document.getElementById("tf_allow_partial_wrap").classList.toggle("hidden", isSup);
+      document.getElementById("taskQuickFillBtn").classList.toggle("hidden", isSup);
+
+      TASK_EMPLOYEE_FIELD_IDS.forEach(id => {
+        document.getElementById(id).disabled = isSup;
+      });
+      document.getElementById("tf_supervisor_comments").disabled = false;
 
       const today = todayISO();
       document.getElementById("tf_date_of_entry").value = t ? parseSheetDateToISO(t.date_of_entry) : today;
@@ -2276,15 +2484,19 @@
       document.getElementById("tf_supervisor_comments").value = t ? t.supervisor_comments : "";
       document.getElementById("tf_clarification").value = t ? t.clarification : "";
 
-      if (markCompleteMode) {
+      if (markCompleteMode && !isSup) {
         quickFillTaskComplete();
       }
       updateTaskCheckPreview();
       openModal("taskModalBackdrop");
-      setTimeout(() => document.getElementById("tf_detail").focus(), 40);
+      setTimeout(() => document.getElementById(isSup ? "tf_supervisor_comments" : "tf_detail").focus(), 40);
     }
 
     function duplicateTask(row) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode only allows adding Supervisor comments.", "error");
+        return;
+      }
       const t = state.tasks.find(x => x.row === row);
       if (!t) return;
       openTaskModal(null);
@@ -2323,6 +2535,14 @@
     }
 
     function updateTaskCheckPreview() {
+      const supBanner = document.getElementById("taskLiveCheckBanner");
+      if (isSupervisorMode()) {
+        document.getElementById("tf_delay_req_badge").classList.add("hidden");
+        document.getElementById("tf_delay_reason").classList.remove("highlight-req");
+        supBanner.className = "check-banner ok";
+        supBanner.textContent = "Supervision Mode: Employee task fields are read-only. You can only add or update Supervisor Comments (Col T).";
+        return;
+      }
       const detail = document.getElementById("tf_detail").value.trim();
       const prio = document.getElementById("tf_priority").value.trim();
       const diff = document.getElementById("tf_difficulty").value.trim();
@@ -2376,10 +2596,27 @@
 
     async function submitTaskForm(e) {
       e.preventDefault();
+      const isSup = isSupervisorMode();
       const btn = document.getElementById("taskSubmitBtn");
       btn.disabled = true;
       btn.textContent = "Saving...";
       try {
+        if (isSup) {
+          if (!state.editingTaskRow) {
+            throw new Error("Supervision mode only allows commenting on existing tasks.");
+          }
+          const data = await apiFetch(`/api/tasks/${state.editingTaskRow}/supervisor-comment`, {
+            method: "PUT",
+            body: JSON.stringify({
+              supervisor_comments: document.getElementById("tf_supervisor_comments").value,
+              expected_snapshot: state.editingTaskSnapshot,
+            }),
+          });
+          showToast(`Supervisor comment saved for task row ${state.editingTaskRow}!`, "success");
+          applyBootstrap(data);
+          closeModal("taskModalBackdrop");
+          return;
+        }
         const payload = {
           date_of_entry: document.getElementById("tf_date_of_entry").value,
           detail: document.getElementById("tf_detail").value,
@@ -2423,12 +2660,18 @@
         showToast(err.message, "error");
       } finally {
         btn.disabled = false;
-        btn.textContent = state.editingTaskRow ? "Update Task" : "Add Task";
+        btn.textContent = isSup
+          ? "Save Supervisor Comment"
+          : (state.editingTaskRow ? "Update Task" : "Add Task");
       }
     }
 
     // --- WORK LOG MODAL LOGIC ---
     function openWorklogModal(row = null) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot add or edit Work Log entries.", "error");
+        return;
+      }
       const w = row ? state.worklogs.find(x => x.row === row) : null;
       state.editingWlRow = w ? w.row : null;
       state.editingWlSnapshot = w ? { task: w.task, project: w.project, date: w.date } : null;
@@ -2450,6 +2693,10 @@
     }
 
     function duplicateWorklog(row) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot duplicate Work Log entries.", "error");
+        return;
+      }
       const w = state.worklogs.find(x => x.row === row);
       if (!w) return;
       openWorklogModal(null);
@@ -2505,6 +2752,10 @@
     }
 
     async function quickToggleWorklogStatus(row, newStatus) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot modify Work Log status.", "error");
+        return;
+      }
       const w = state.worklogs.find(x => x.row === row);
       if (!w) return;
       try {
@@ -2557,6 +2808,10 @@
     }
 
     function openCompleteWorklogModal(row) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot complete Work Log entries.", "error");
+        return;
+      }
       const w = state.worklogs.find(x => x.row === row);
       if (!w) return;
       const today = todayISO();
@@ -2612,6 +2867,10 @@
     }
 
     function openCompleteTaskModal(row) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot complete Tasks — use Add Comment instead.", "error");
+        return;
+      }
       const t = state.tasks.find(x => x.row === row);
       if (!t) return;
       const today = todayISO();
@@ -2773,6 +3032,10 @@
 
     // --- DELETE FLOW ---
     function promptDeleteTask(row) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot delete tasks.", "error");
+        return;
+      }
       const t = state.tasks.find(x => x.row === row);
       if (!t) return;
       state.pendingDelete = {
@@ -2789,6 +3052,10 @@
     }
 
     function promptDeleteWorklog(row) {
+      if (isSupervisorMode()) {
+        showToast("Supervision mode cannot delete work log entries.", "error");
+        return;
+      }
       const w = state.worklogs.find(x => x.row === row);
       if (!w) return;
       state.pendingDelete = {
@@ -2868,13 +3135,43 @@
       }
     }
 
+    function selectSetupRole(role, isUserClick = true) {
+      const normalized = String(role || "").trim().toLowerCase() === "supervisor" ? "supervisor" : "employee";
+      if (isUserClick) state.setupRoleDirty = true;
+      document.getElementById("sf_role_mode").value = normalized;
+      const empBtn = document.getElementById("sf_role_employee_btn");
+      const supBtn = document.getElementById("sf_role_supervisor_btn");
+      const hintBox = document.getElementById("sf_role_hint");
+      const sheetLabel = document.getElementById("sf_sheet_label");
+
+      empBtn.classList.toggle("active", normalized === "employee");
+      supBtn.classList.toggle("sup-active", normalized === "supervisor");
+      sheetLabel.innerHTML = normalized === "supervisor"
+        ? 'Staff Google Sheet Link or ID <span class="req">*</span>'
+        : 'Your Google Sheet Link or ID <span class="req">*</span>';
+
+      if (normalized === "supervisor") {
+        hintBox.className = "check-banner ok";
+        hintBox.textContent =
+          "Supervision Mode (for supervisors): All employee fields, Work Logs, Achievements, and scores stay locked. Only Supervisor comments (Tasks Col T & Perf Standard Col L) are allowed.";
+        hintBox.classList.remove("hidden");
+      } else {
+        hintBox.classList.add("hidden");
+      }
+      if (isUserClick && state.spreadsheet?.id) {
+        document.getElementById("saveSetupBtn").textContent = "Save Mode & Open Sheet";
+      }
+    }
+
     async function openSetupModal() {
       const statusBox = document.getElementById("setupTestStatus");
       statusBox.classList.add("hidden");
+      state.setupRoleDirty = false;
       document.getElementById("saveSetupBtn").textContent = "Connect & Open Sheet";
       try {
         const cfg = await apiFetch("/api/setup");
         state.setup = Object.assign({}, state.setup, cfg);
+        selectSetupRole(cfg.role_mode || "employee", false);
         document.getElementById("sf_client_id").value = cfg.client_id || "";
         document.getElementById("sf_advanced_details").open = state.appMode === "browser" && !cfg.client_id;
         document.getElementById("sf_sheet_url").value =
@@ -2926,6 +3223,8 @@
       try {
         const data = await apiFetch("/api/setup/reset", { method: "POST", body: "{}" });
         applyBootstrap(data);
+        selectSetupRole("employee", false);
+        state.setupRoleDirty = false;
         document.getElementById("sf_client_id").value = data.setup?.client_id || "";
         document.getElementById("sf_sheet_url").value = "";
         document.getElementById("setupCredsBanner").classList.add("hidden");
@@ -2959,6 +3258,7 @@
               <div style="font-weight:700; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                 ${escapeHtml(s.title || s.spreadsheet_id || "Google Sheet")}
                 ${isActive ? `<span class="badge badge-blue" style="margin-left:6px;">Active</span>` : ""}
+                ${s.role_mode === "supervisor" ? `<span class="badge badge-purple" style="margin-left:6px;">🛡 Supervision</span>` : ""}
               </div>
               <div class="cell-sub mono" style="font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                 ${s.employee_name ? escapeHtml(s.employee_name) + " • " : ""}${escapeHtml(s.spreadsheet_id)}
@@ -2977,6 +3277,7 @@
       const isBrowser = state.appMode === "browser";
       return {
         auth_mode: isBrowser ? "oauth" : "local",
+        role_mode: document.getElementById("sf_role_mode").value || "employee",
         client_id: document.getElementById("sf_client_id").value,
         sheet_url: document.getElementById("sf_sheet_url").value,
         tasks_tab: document.getElementById("sf_tasks_tab").value,
@@ -3062,6 +3363,9 @@
     async function quickSwitchSheet(key) {
       const item = (state.setup.saved_sheets || []).find(s => s.spreadsheet_id === key);
       if (!item) return;
+      if (!state.setupRoleDirty) {
+        selectSetupRole(item.role_mode || document.getElementById("sf_role_mode").value || "employee", false);
+      }
       if (state.appMode === "browser") {
         document.getElementById("sf_client_id").value = item.client_id || state.setup.client_id || "";
         syncModeUi();

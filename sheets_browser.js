@@ -33,6 +33,28 @@
     return String(explicitId || "").trim() || DEFAULT_WEB_CLIENT_ID;
   }
 
+  function normalizeRoleMode(val) {
+    return String(val || "").trim().toLowerCase() === "supervisor" ? "supervisor" : "employee";
+  }
+
+  function makeApiError(message, status = 400) {
+    const err = new Error(message);
+    err.status = status;
+    return err;
+  }
+
+  function requireEmployeeMode(cfg, action = "modify records") {
+    if (normalizeRoleMode(cfg.role_mode) === "supervisor") {
+      throw makeApiError(`Supervision mode only allows adding Supervisor comments; cannot ${action}.`, 403);
+    }
+  }
+
+  function requireSupervisorMode(cfg, fieldLabel = "Supervisor comments") {
+    if (normalizeRoleMode(cfg.role_mode) !== "supervisor") {
+      throw makeApiError(`Enable Supervision mode in Setup to edit ${fieldLabel}.`, 403);
+    }
+  }
+
   function loadSessionToken(expectedClientId) {
     const cid = resolveClientId(expectedClientId);
     if (
@@ -104,6 +126,7 @@
   function loadBrowserConfig() {
     const base = {
       auth_mode: "oauth",
+      role_mode: "employee",
       client_id: DEFAULT_WEB_CLIENT_ID,
       spreadsheet_id: "",
       sheet_url: "",
@@ -130,6 +153,7 @@
     delete base.gas_url;
     delete base.gas_pin;
     base.auth_mode = "oauth";
+    base.role_mode = normalizeRoleMode(base.role_mode);
     base.client_id = resolveClientId(base.client_id);
     if (Array.isArray(base.saved_sheets)) {
       base.saved_sheets = base.saved_sheets
@@ -138,7 +162,11 @@
           if ("gas_url" in s || "gas_pin" in s || (s.auth_mode && s.auth_mode !== "oauth")) {
             migrated = true;
           }
-          const cleaned = { ...s, auth_mode: "oauth" };
+          const cleaned = {
+            ...s,
+            auth_mode: "oauth",
+            role_mode: normalizeRoleMode(s.role_mode),
+          };
           delete cleaned.gas_url;
           delete cleaned.gas_pin;
           return cleaned;
@@ -155,6 +183,8 @@
     const qs = new URLSearchParams(window.location.search);
     const qClient = (qs.get("client_id") || "").trim();
     const qSheet = (qs.get("sheet") || "").trim();
+    const qRole = (qs.get("role") || "").trim();
+    const qSup = (qs.get("supervision") || "").trim();
     if (qClient) {
       base.client_id = qClient;
     }
@@ -163,6 +193,11 @@
       try {
         base.spreadsheet_id = parseSpreadsheetId(qSheet);
       } catch (_) {}
+    }
+    if (qRole) {
+      base.role_mode = normalizeRoleMode(qRole);
+    } else if (qSup === "1" || qSup.toLowerCase() === "true") {
+      base.role_mode = "supervisor";
     }
     return base;
   }
@@ -709,6 +744,7 @@
     return {
       mode: "browser",
       auth_mode: "oauth",
+      role_mode: normalizeRoleMode(cfg.role_mode),
       client_id: cid,
       has_default_client_id: Boolean(DEFAULT_WEB_CLIENT_ID),
       spreadsheet_id: cfg.spreadsheet_id || "",
@@ -1100,6 +1136,7 @@
     if (url === "/api/setup" && method === "POST") {
       const info = await probeSetup(payload);
       cfg.auth_mode = "oauth";
+      cfg.role_mode = "role_mode" in payload ? normalizeRoleMode(payload.role_mode) : normalizeRoleMode(cfg.role_mode);
       delete cfg.gas_url;
       delete cfg.gas_pin;
       cfg.client_id = info.client_id;
@@ -1111,6 +1148,7 @@
       cfg.perf_tab = info.perf_tab || DEFAULT_TABS.perf;
       upsertSavedSheet(cfg, {
         auth_mode: "oauth",
+        role_mode: cfg.role_mode,
         client_id: cfg.client_id || "",
         spreadsheet_id: info.spreadsheet_id || "",
         sheet_url: cfg.sheet_url || "",
@@ -1149,6 +1187,7 @@
 
     // --- OAuth REST API v4 CRUD routing ---
     if (url === "/api/tasks" && method === "POST") {
+      requireEmployeeMode(cfg, "add new tasks");
       const prepared = validateAndPrepareTask(payload);
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
       const qt = quoteSheet(smap.tasks.title);
@@ -1169,8 +1208,42 @@
       return data;
     }
 
+    let mTaskSup = url.match(/^\/api\/tasks\/(\d+)\/supervisor-comment$/);
+    if (mTaskSup && method === "PUT") {
+      requireSupervisorMode(cfg, "Supervisor Comments (Col T)");
+      const rowNum = Number(mTaskSup[1]);
+      const supervisorComments = String(payload.supervisor_comments || "").trim();
+      const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
+      const tMax = smap.tasks.rowCount;
+      if (rowNum < TASKS_START_ROW || rowNum > tMax) throw new Error(`Task row must be between ${TASKS_START_ROW} and ${tMax}.`);
+      const qt = quoteSheet(smap.tasks.title);
+      const currRes = await sheetsFetch(
+        `/${encodeURIComponent(cfg.spreadsheet_id)}/values/${encodeURIComponent(`${qt}!A${rowNum}:Z${rowNum}`)}?valueRenderOption=FORMATTED_VALUE`,
+        {},
+        cfg
+      );
+      const currRow = (currRes.values || [])[0] || [];
+      if (!taskHasUserContent(currRow)) {
+        throw makeApiError(`Task row ${rowNum} is empty.`, 404);
+      }
+      const currRec = buildTaskRecord(rowNum, currRow);
+      if (!taskSnapshotMatches(currRec, payload.expected_snapshot)) {
+        throw makeApiError("This task row changed in Google Sheets since you loaded it. Refreshing latest data.", 409);
+      }
+      // Strictly write ONLY Column T (Supervisor Comments)
+      await sheetsFetch(
+        `/${encodeURIComponent(cfg.spreadsheet_id)}/values/${encodeURIComponent(`${qt}!T${rowNum}`)}?valueInputOption=USER_ENTERED`,
+        { method: "PUT", body: JSON.stringify({ values: [[supervisorComments]] }) },
+        cfg
+      );
+      const data = await fetchBootstrapData(cfg);
+      data.affected_row = rowNum;
+      return data;
+    }
+
     let mTask = url.match(/^\/api\/tasks\/(\d+)$/);
     if (mTask && method === "PUT") {
+      requireEmployeeMode(cfg, "edit employee task fields");
       const rowNum = Number(mTask[1]);
       const prepared = validateAndPrepareTask(payload);
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
@@ -1195,6 +1268,7 @@
     }
 
     if (mTask && method === "DELETE") {
+      requireEmployeeMode(cfg, "delete tasks");
       const rowNum = Number(mTask[1]);
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
       const tMax = smap.tasks.rowCount;
@@ -1244,6 +1318,7 @@
     }
 
     if (url === "/api/worklogs" && method === "POST") {
+      requireEmployeeMode(cfg, "add work log entries");
       const prepared = validateAndPrepareWorklog(payload);
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
       const qw = quoteSheet(smap.worklog.title);
@@ -1277,6 +1352,7 @@
 
     let mWl = url.match(/^\/api\/worklogs\/(\d+)$/);
     if (mWl && method === "PUT") {
+      requireEmployeeMode(cfg, "edit work log entries");
       const rowNum = Number(mWl[1]);
       const prepared = validateAndPrepareWorklog(payload);
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
@@ -1305,6 +1381,7 @@
     }
 
     if (mWl && method === "DELETE") {
+      requireEmployeeMode(cfg, "delete work log entries");
       const rowNum = Number(mWl[1]);
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg);
       const wMax = smap.worklog.rowCount;
@@ -1349,6 +1426,7 @@
     }
 
     if (url === "/api/perf/months" && method === "POST") {
+      requireEmployeeMode(cfg, "create a new Perf Standard month");
       const targetMk = normalizePerfMonth(payload.year, payload.month);
       if (!targetMk) throw new Error("Valid 4-digit Year and Month name are required.");
       const srcMk = normalizePerfMonth(payload.source_year, payload.source_month);
@@ -1459,12 +1537,9 @@
       return data;
     }
 
-    if (url === "/api/perf/achievements" && method === "PUT") {
-      const targetMk = normalizePerfMonth(payload.year, payload.month);
+    async function loadPerfWriteContext(year, month) {
+      const targetMk = normalizePerfMonth(year, month);
       if (!targetMk) throw new Error("Valid Year and Month are required.");
-      const updatesList = Array.isArray(payload.updates) ? payload.updates : [];
-      if (!updatesList.length) throw new Error("At least one Achievement update is required.");
-
       const smap = await getSheetMap(cfg.spreadsheet_id, cfg.tasks_tab, cfg.worklog_tab, cfg.data_tab, cfg, cfg.perf_tab);
       if (!smap.perf) throw new Error(`Tab '${cfg.perf_tab || DEFAULT_TABS.perf}' was not found in this Google Sheet.`);
       const qp = quoteSheet(smap.perf.title);
@@ -1477,35 +1552,66 @@
       const pRows = pRes.values || [];
       const hVals = await fetchPerfHValidations(cfg.spreadsheet_id, smap.perf, pRows, cfg);
       const perfState = parsePerfStandardData(pRows, [], hVals, smap.perf);
-
       const monthObj = perfState.months.find(m => m.key === targetMk.key);
       if (!monthObj) throw new Error(`Perf Standard month ${targetMk.label} was not found.`);
-      if (monthObj.key !== perfState.latest_month_key) {
-        const latestObj = perfState.months[0];
-        throw new Error(`Past months are view-only. Only the latest month (${latestObj ? latestObj.label : perfState.latest_month_key}) can edit Achievement.`);
-      }
-
       const byRow = new Map();
       perfState.items.filter(it => it.month_key === monthObj.key).forEach(it => byRow.set(it.row, it));
+      return { qp, perfState, monthObj, byRow };
+    }
 
-      const dataUpdates = [];
-      for (const u of updatesList) {
-        const rn = Number(u.row);
-        const rec = byRow.get(rn);
-        if (!rec) {
-          const err = new Error(`Row ${rn} does not belong to ${monthObj.label}. Refreshing latest data.`);
-          err.status = 409;
-          throw err;
-        }
-        if (u.expected_description !== undefined && rec.description !== String(u.expected_description).trim()) {
-          const err = new Error(`Perf Standard row ${rn} changed externally. Refreshing latest data.`);
-          err.status = 409;
-          throw err;
-        }
+    function resolvePerfUpdateRow(byRow, monthObj, u) {
+      const rn = Number(u.row);
+      const rec = byRow.get(rn);
+      if (!rec) {
+        throw makeApiError(`Row ${rn} does not belong to ${monthObj.label}. Refreshing latest data.`, 409);
+      }
+      if (u.expected_description !== undefined && rec.description !== String(u.expected_description).trim()) {
+        throw makeApiError(`Perf Standard row ${rn} changed externally. Refreshing latest data.`, 409);
+      }
+      return { rn, rec };
+    }
+
+    if (url === "/api/perf/achievements" && method === "PUT") {
+      requireEmployeeMode(cfg, "edit Achievement values (Col H)");
+      const updatesList = Array.isArray(payload.updates) ? payload.updates : [];
+      if (!updatesList.length) throw new Error("At least one Achievement update is required.");
+
+      const { qp, perfState, monthObj, byRow } = await loadPerfWriteContext(payload.year, payload.month);
+      if (monthObj.key !== perfState.latest_month_key) {
+        const latestObj = perfState.months[0];
+        throw makeApiError(
+          `Past months are view-only. Only the latest month (${latestObj ? latestObj.label : perfState.latest_month_key}) can edit Achievement.`,
+          403
+        );
+      }
+
+      const dataUpdates = updatesList.map(u => {
+        const { rn, rec } = resolvePerfUpdateRow(byRow, monthObj, u);
         const cleaned = validatePerfAchievementVal(u.achievement, rec.h_options, rec.description);
         // Strictly update ONLY Column H (Achievement)
-        dataUpdates.push({ range: `${qp}!H${rn}`, values: [[cleaned]] });
-      }
+        return { range: `${qp}!H${rn}`, values: [[cleaned]] };
+      });
+
+      await sheetsFetch(`/${encodeURIComponent(cfg.spreadsheet_id)}/values:batchUpdate`, {
+        method: "POST",
+        body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: dataUpdates }),
+      }, cfg);
+
+      return await fetchBootstrapData(cfg);
+    }
+
+    if (url === "/api/perf/supervisor-remarks" && method === "PUT") {
+      requireSupervisorMode(cfg, "Supervisor Remarks (Col L)");
+      const updatesList = Array.isArray(payload.updates) ? payload.updates : [];
+      if (!updatesList.length) throw new Error("At least one Supervisor Remark update is required.");
+
+      const { qp, monthObj, byRow } = await loadPerfWriteContext(payload.year, payload.month);
+      const dataUpdates = updatesList.map(u => {
+        const { rn } = resolvePerfUpdateRow(byRow, monthObj, u);
+        const remarkVal = String(u.supervisor_remarks || "").trim();
+        // Strictly update ONLY Column L (Supervisor Remarks)
+        return { range: `${qp}!L${rn}`, values: [[remarkVal]] };
+      });
 
       await sheetsFetch(`/${encodeURIComponent(cfg.spreadsheet_id)}/values:batchUpdate`, {
         method: "POST",

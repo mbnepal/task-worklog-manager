@@ -22,6 +22,9 @@ Works in **two modes** using the same interface:
 - **Perf Standard Tab (`Perf Standard`)**
   - View historical months read-only via the Month selector, or click **+ New Month** to copy KPI structure, weights, targets, Score formulas (`Col I`), `SF` (`Col M`), and dropdown validations from any previous month (`PASTE_NORMAL`), clearing old remarks and supervisor scores (`J:L`).
   - Strictly locks all columns except **Achievement (`Col H`)** on the current/latest month (respecting `ONE_OF_LIST` validations where configured).
+- **Supervision Mode (`Setup → Supervision (Supervisor)`)**
+  - Supervisors can select **Supervision (Supervisor)** in **Setup** before opening a staff member's Google Sheet.
+  - Locks all employee fields, Work Log entries, KPI Achievements, scores, and row creation/completion/deletion across the app and backends, allowing edits **only** to Supervisor comment fields (**Tasks `Col T` Supervisor Comments** and **Perf Standard `Col L` Supervisor Remarks**).
 - **Conflict Protection**
   - Detects external edits before `PUT` / `DELETE` and refreshes the UI instead of overwriting changed rows.
 
